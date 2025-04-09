@@ -68,6 +68,9 @@ class ChronoHelper:
         
         # 啟動初始網絡檢測
         self.root.after(1000, self.initial_network_check)
+        
+        # 註冊關閉窗口事件處理器
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
     
     def create_widgets(self):
         # 頂部標題欄
@@ -732,4 +735,34 @@ class ChronoHelper:
         except:
             # 如果圖標創建失敗，返回None
             return None
+
+    def on_close(self):
+        """處理應用程式關閉"""
+        try:
+            self.logger.log("正在關閉應用程式...")
+            
+            # 停止調度器
+            if hasattr(self, 'scheduler'):
+                self.scheduler.stop()
+                self.logger.log("調度器已停止")
+            
+            # 停止所有網絡檢測操作
+            if hasattr(self, 'network_utils'):
+                self.network_utils.shutdown()
+                
+            # 保存所有設定和任務
+            if hasattr(self, 'file_handler'):
+                self.save_cookies()
+                self.file_handler.save_settings(self.settings)
+                self.file_handler.save_tasks(self.tasks)
+                self.logger.log("設定和任務已保存")
+            
+            # 清理其他資源
+            self.logger.log("ChronoHelper 已關閉")
+        except Exception as e:
+            # 發生錯誤時也確保應用關閉
+            print(f"關閉時出錯: {str(e)}")
+        finally:
+            # 銷毀窗口並退出
+            self.root.destroy()
 
