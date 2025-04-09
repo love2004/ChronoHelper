@@ -41,17 +41,15 @@ def ensure_icon_exists():
     
     if not icon_path.exists():
         print("創建應用程式圖標...")
-        # 安裝Pillow
+    
         check_and_install_package('pillow')
         
         from PIL import Image, ImageDraw, ImageFont
         
-        # 創建正方形圖像
         icon_size = 256
         img = Image.new('RGBA', (icon_size, icon_size), color=(0, 0, 0, 0))  # 透明背景
         draw = ImageDraw.Draw(img)
         
-        # 繪製漸變藍色背景 - 使用圓形
         center_x, center_y = icon_size // 2, icon_size // 2
         radius = icon_size // 2
         

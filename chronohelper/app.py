@@ -30,7 +30,7 @@ class ChronoHelper:
         self.root.configure(bg=COLORS["background"])
         
         # 先初始化核心組件
-        self.logger = Logger()  # 確保logger先被初始化
+        self.logger = Logger() 
         
         # 設置應用圖標
         self.set_icon_for_all_windows()
@@ -56,7 +56,7 @@ class ChronoHelper:
         # 載入任務和Cookie
         self.load_tasks()
         self.refresh_task_list()
-        self.log_text.see(tk.END)  # 確保日誌顯示最新內容
+        self.log_text.see(tk.END) 
         
         self.load_cookies()
         
