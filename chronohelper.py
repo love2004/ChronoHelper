@@ -202,11 +202,12 @@ class TaskCard(tk.Frame):
         self.on_delete = on_delete
         self.on_sign_in = on_sign_in
         self.on_sign_out = on_sign_out
-        self.on_update_status = on_update_status  # 新增狀態更新回調
+        self.on_update_status = on_update_status
         
         self.config(highlightbackground=COLORS["border"], highlightthickness=1)
         
         self.create_widgets()
+        
         # 綁定右鍵選單
         self.bind("<Button-3>", self.show_context_menu)
     
@@ -241,18 +242,24 @@ class TaskCard(tk.Frame):
         status_frame.pack(fill=tk.X, pady=(5, 10))
         
         # 添加簽到狀態切換
-        sign_in_status_var = tk.IntVar(value=1 if self.task.sign_in_done else 0)
+        self.sign_in_status_var = tk.IntVar(value=1 if self.task.sign_in_done else 0)
         sign_in_cb = ttk.Checkbutton(status_frame, text="已完成簽到", 
-                                   variable=sign_in_status_var,
-                                   command=lambda: self.update_task_status("sign_in", sign_in_status_var.get()))
+                                   variable=self.sign_in_status_var,
+                                   command=lambda: self.update_task_status("sign_in", self.sign_in_status_var.get()))
         sign_in_cb.pack(side=tk.LEFT, padx=(0, 10))
         
         # 添加簽退狀態切換
-        sign_out_status_var = tk.IntVar(value=1 if self.task.sign_out_done else 0)
+        self.sign_out_status_var = tk.IntVar(value=1 if self.task.sign_out_done else 0)
         sign_out_cb = ttk.Checkbutton(status_frame, text="已完成簽退", 
-                                    variable=sign_out_status_var,
-                                    command=lambda: self.update_task_status("sign_out", sign_out_status_var.get()))
+                                    variable=self.sign_out_status_var,
+                                    command=lambda: self.update_task_status("sign_out", self.sign_out_status_var.get()))
         sign_out_cb.pack(side=tk.LEFT)
+        
+        # 任務受限警告
+        if hasattr(self.task, 'campus_restricted') and self.task.campus_restricted:
+            restricted_label = tk.Label(status_frame, text="⚠️ 環境受限", 
+                                      font=("Arial", 9), bg=COLORS["card"], fg="#e74c3c")
+            restricted_label.pack(side=tk.RIGHT)
         
         # 按鈕區域
         button_frame = tk.Frame(self, bg=COLORS["card"])
@@ -274,6 +281,17 @@ class TaskCard(tk.Frame):
                                    bg=COLORS["warning"], activebackground=COLORS["warning_dark"],
                                    keep_color=True)
         delete_button.pack(side=tk.RIGHT, padx=5)
+        
+        # 將右鍵菜單綁定到所有子元素
+        self.bind_right_click_to_children(self)
+    
+    def bind_right_click_to_children(self, widget):
+        """遞迴將右鍵選單事件綁定到所有子元素"""
+        widget.bind("<Button-3>", self.show_context_menu)
+        
+        # 遞迴綁定到所有子元素
+        for child in widget.winfo_children():
+            self.bind_right_click_to_children(child)
     
     def update_task_status(self, status_type, value):
         """更新任務狀態
@@ -284,8 +302,15 @@ class TaskCard(tk.Frame):
         """
         if status_type == "sign_in":
             self.task.sign_in_done = bool(value)
+            self.sign_in_status_var.set(1 if self.task.sign_in_done else 0)
         elif status_type == "sign_out":
             self.task.sign_out_done = bool(value)
+            self.sign_out_status_var.set(1 if self.task.sign_out_done else 0)
+        
+        # 如果手動更新狀態，清除環境限制標記
+        if hasattr(self.task, 'campus_restricted') and self.task.campus_restricted:
+            self.task.campus_restricted = False
+            self.task.last_attempt_time = None
         
         # 更新狀態標籤
         status_text, status_color = self.get_status_info()
@@ -321,12 +346,18 @@ class TaskCard(tk.Frame):
             command=self.reset_status
         )
         
+        # 快速設置選項
+        status_menu.add_separator()
+        status_menu.add_command(
+            label="一鍵設為完成",
+            command=self.set_all_complete
+        )
+        
         # 將狀態選單添加到主選單
         context_menu.add_cascade(label="任務狀態管理", menu=status_menu)
         
         # 如果環境受限，添加重置選項
         if hasattr(self.task, 'campus_restricted') and self.task.campus_restricted:
-            context_menu.add_separator()
             context_menu.add_command(label="重置環境限制", command=self.reset_restriction)
         
         context_menu.add_separator()
@@ -335,11 +366,41 @@ class TaskCard(tk.Frame):
         
         # 顯示選單
         context_menu.tk_popup(event.x_root, event.y_root)
+        
+        # 阻止事件繼續傳播
+        return "break"
     
     def reset_status(self):
         """重置任務狀態"""
         self.task.sign_in_done = False
         self.task.sign_out_done = False
+        self.sign_in_status_var.set(0)
+        self.sign_out_status_var.set(0)
+        
+        # 清除環境限制標記
+        if hasattr(self.task, 'campus_restricted'):
+            self.task.campus_restricted = False
+            self.task.last_attempt_time = None
+        
+        # 更新狀態標籤
+        status_text, status_color = self.get_status_info()
+        self.status_label.config(text=status_text, bg=status_color)
+        
+        # 調用回調函數更新任務
+        if self.on_update_status:
+            self.on_update_status(self.task)
+    
+    def set_all_complete(self):
+        """將任務設為全部完成"""
+        self.task.sign_in_done = True
+        self.task.sign_out_done = True
+        self.sign_in_status_var.set(1)
+        self.sign_out_status_var.set(1)
+        
+        # 清除環境限制標記
+        if hasattr(self.task, 'campus_restricted'):
+            self.task.campus_restricted = False
+            self.task.last_attempt_time = None
         
         # 更新狀態標籤
         status_text, status_color = self.get_status_info()
@@ -651,6 +712,7 @@ class SettingsDialog:
             messagebox.showerror("連接失敗", f"無法連接到API服務器: {str(e)}", parent=self.dialog)
         finally:
             self.dialog.config(cursor="")
+            self.dialog.update()
     
     def test_login(self):
         """測試大葉大學系統登入"""
@@ -734,12 +796,16 @@ class SettingsDialog:
         
         except RequestException as e:
             self.log(f"登入過程中發生網絡錯誤: {str(e)}")
-            return False
+            messagebox.showerror("網絡錯誤", f"連接服務器失敗: {str(e)}", parent=self.dialog)
         except Exception as e:
             self.log(f"登入過程中發生未知錯誤: {str(e)}")
             import traceback
             self.log(traceback.format_exc())
-            return False
+            messagebox.showerror("未知錯誤", f"測試過程中發生錯誤: {str(e)}", parent=self.dialog)
+        finally:
+            # 確保無論何種情況都會重置游標狀態
+            self.dialog.config(cursor="")
+            self.dialog.update()
     
     def on_save(self):
         # 更新設定
@@ -1419,7 +1485,7 @@ class ChronoHelper:
                         
                         if self.settings.get("global_notify", True) and task.notify:
                             self.show_notification(f"{task.name} 簽到成功", 
-                                                 f"已在 {datetime.datetime.now().strftime('%H:%M:%S')} 完成簽到\n\n{success_msg}")
+                                                   f"已在 {datetime.datetime.now().strftime('%H:%M:%S')} 完成簽到\n\n{success_msg}")
                         
                         self.status_var.set(f"已完成 '{task.name}' 的簽到")
                         return True
@@ -1440,20 +1506,19 @@ class ChronoHelper:
                         return True  # 返回成功，因為已經簽到了
                     
                     elif result_code == 0 and "請先簽退" in result_msg:  # 需要先簽退
-                        self.log(f"簽到提示: {result_msg}，需要先完成簽退")
+                        self.log(f"簽到提示: {result_msg}，系統中已有簽到記錄")
                         
-                        # 新增：顯示建議手動設置狀態的通知
+                        # 顯示建議手動設置狀態的通知
                         if self.settings.get("global_notify", True) and task.notify:
                             self.show_notification(f"{task.name} 簽到提示", 
-                                                 f"系統要求先完成簽退才能簽到\n\n如果您已在系統外完成簽到/簽退，請右鍵點擊任務卡片，選擇「任務狀態管理」手動設置狀態")
+                                                 f"系統提示您需要先完成簽退才能簽到\n\n這表示系統中已存在簽到記錄，任務狀態已更新為已簽到")
                         
-                        # 新增：標記環境限制，避免重複提示
-                        task.campus_restricted = True
-                        task.last_attempt_time = datetime.datetime.now().isoformat()
+                        # 更新任務狀態為已簽到，因為"請先簽退"表示系統中已有記錄
+                        task.sign_in_done = True
                         self.save_tasks()
                         
-                        self.status_var.set(f"'{task.name}': 需要先簽退")
-                        return False
+                        self.status_var.set(f"'{task.name}': 系統中已有簽到記錄")
+                        return True  # 返回成功，因為實際上任務已標記為已完成
                     
                     elif result_code == -1 and ("無使用權限" in result_msg or "-101" in result_msg):  # 權限錯誤
                         self.log(f"簽到權限錯誤: {result_msg}")
@@ -2040,14 +2105,29 @@ class ChronoHelper:
         try:
             self.log("正在刷新網絡狀態...")
             is_campus, ip = self.check_campus_network(verbose=True)  # 手動刷新時顯示詳細信息
+            
+            # 保存當前狀態以檢測變化
+            old_status = getattr(self, 'is_campus_network', None)
+            
+            # 更新網絡狀態
             self.update_network_status(is_campus, ip)
+            
+            # 如果是校內網絡或網絡狀態從校外變為校內，強制重置所有任務的環境限制
+            if is_campus or (old_status is False and is_campus is True):
+                reset_count = self.reset_campus_restrictions()
+                if reset_count > 0:
+                    self.show_notification("環境限制已重置", 
+                                         f"已重置 {reset_count} 個受環境限制的任務\n現在可以正常執行了")
+            
+            # 強制刷新任務列表顯示
+            self.refresh_task_list()
         except Exception as e:
             self.log(f"網絡狀態刷新失敗: {str(e)}")
             self.network_status_var.set("網絡檢測失敗")
             self.network_status_label.config(fg="#e74c3c")  # 紅色
     
     def reset_campus_restrictions(self):
-        """當網絡狀態變為校內時，重置所有任務的環境限制狀態"""
+        """重置所有任務的環境限制狀態，返回重置的任務數量"""
         reset_count = 0
         for task in self.tasks:
             if hasattr(task, 'campus_restricted') and task.campus_restricted:
@@ -2058,6 +2138,8 @@ class ChronoHelper:
         if reset_count > 0:
             self.log(f"已重置 {reset_count} 個任務的環境限制狀態")
             self.save_tasks()
+        
+        return reset_count
     
     def update_task_status(self, task):
         """更新任務狀態
@@ -2076,6 +2158,11 @@ class ChronoHelper:
             status_text.append("已簽退")
         
         status_str = " 和 ".join(status_text) if status_text else "未完成"
+        
+        # 環境限制狀態
+        if hasattr(task, 'campus_restricted') and task.campus_restricted:
+            status_str += "（環境受限已清除）"
+        
         self.log(f"已手動更新任務 '{task.name}' 狀態: {status_str}")
 
 
