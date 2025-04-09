@@ -195,17 +195,20 @@ class ModernButton(tk.Button):
 
 class TaskCard(tk.Frame):
     """任務卡片元件，顯示單個任務信息"""
-    def __init__(self, master, task, on_edit=None, on_delete=None, on_sign_in=None, on_sign_out=None):
+    def __init__(self, master, task, on_edit=None, on_delete=None, on_sign_in=None, on_sign_out=None, on_update_status=None):
         super().__init__(master, bg=COLORS["card"], padx=15, pady=15)
         self.task = task
         self.on_edit = on_edit
         self.on_delete = on_delete
         self.on_sign_in = on_sign_in
         self.on_sign_out = on_sign_out
+        self.on_update_status = on_update_status  # 新增狀態更新回調
         
         self.config(highlightbackground=COLORS["border"], highlightthickness=1)
         
         self.create_widgets()
+        # 綁定右鍵選單
+        self.bind("<Button-3>", self.show_context_menu)
     
     def create_widgets(self):
         # 任務標題
@@ -217,9 +220,9 @@ class TaskCard(tk.Frame):
         title_label.pack(side=tk.LEFT)
         
         status_text, status_color = self.get_status_info()
-        status_label = tk.Label(title_frame, text=status_text, font=("Arial", 10),
+        self.status_label = tk.Label(title_frame, text=status_text, font=("Arial", 10),
                                 bg=status_color, fg="white", padx=8, pady=2)
-        status_label.pack(side=tk.RIGHT)
+        self.status_label.pack(side=tk.RIGHT)
         
         # 日期和時間信息
         info_frame = tk.Frame(self, bg=COLORS["card"])
@@ -233,9 +236,27 @@ class TaskCard(tk.Frame):
                              font=("Arial", 10), bg=COLORS["card"], fg=COLORS["text"])
         time_label.pack(side=tk.RIGHT)
         
+        # 進度管理器 - 顯示任務的完成狀態
+        status_frame = tk.Frame(self, bg=COLORS["card"])
+        status_frame.pack(fill=tk.X, pady=(5, 10))
+        
+        # 添加簽到狀態切換
+        sign_in_status_var = tk.IntVar(value=1 if self.task.sign_in_done else 0)
+        sign_in_cb = ttk.Checkbutton(status_frame, text="已完成簽到", 
+                                   variable=sign_in_status_var,
+                                   command=lambda: self.update_task_status("sign_in", sign_in_status_var.get()))
+        sign_in_cb.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # 添加簽退狀態切換
+        sign_out_status_var = tk.IntVar(value=1 if self.task.sign_out_done else 0)
+        sign_out_cb = ttk.Checkbutton(status_frame, text="已完成簽退", 
+                                    variable=sign_out_status_var,
+                                    command=lambda: self.update_task_status("sign_out", sign_out_status_var.get()))
+        sign_out_cb.pack(side=tk.LEFT)
+        
         # 按鈕區域
         button_frame = tk.Frame(self, bg=COLORS["card"])
-        button_frame.pack(fill=tk.X, pady=(10, 0))
+        button_frame.pack(fill=tk.X, pady=(5, 0))
         
         sign_in_button = ModernButton(button_frame, text="簽到", command=self.sign_in,
                                    bg=COLORS["secondary"], activebackground="#27ae60")
@@ -253,6 +274,94 @@ class TaskCard(tk.Frame):
                                    bg=COLORS["warning"], activebackground=COLORS["warning_dark"],
                                    keep_color=True)
         delete_button.pack(side=tk.RIGHT, padx=5)
+    
+    def update_task_status(self, status_type, value):
+        """更新任務狀態
+        
+        Args:
+            status_type: 狀態類型 ("sign_in" 或 "sign_out")
+            value: 狀態值 (0 或 1)
+        """
+        if status_type == "sign_in":
+            self.task.sign_in_done = bool(value)
+        elif status_type == "sign_out":
+            self.task.sign_out_done = bool(value)
+        
+        # 更新狀態標籤
+        status_text, status_color = self.get_status_info()
+        self.status_label.config(text=status_text, bg=status_color)
+        
+        # 調用回調函數更新任務
+        if self.on_update_status:
+            self.on_update_status(self.task)
+    
+    def show_context_menu(self, event):
+        """顯示右鍵選單"""
+        context_menu = tk.Menu(self, tearoff=0)
+        
+        # 狀態管理子選單
+        status_menu = tk.Menu(context_menu, tearoff=0)
+        
+        # 簽到狀態選項
+        status_menu.add_command(
+            label="✓ 標記為已簽到" if not self.task.sign_in_done else "❌ 標記為未簽到",
+            command=lambda: self.update_task_status("sign_in", not self.task.sign_in_done)
+        )
+        
+        # 簽退狀態選項
+        status_menu.add_command(
+            label="✓ 標記為已簽退" if not self.task.sign_out_done else "❌ 標記為未簽退",
+            command=lambda: self.update_task_status("sign_out", not self.task.sign_out_done)
+        )
+        
+        # 重置狀態選項
+        status_menu.add_separator()
+        status_menu.add_command(
+            label="重置所有狀態",
+            command=self.reset_status
+        )
+        
+        # 將狀態選單添加到主選單
+        context_menu.add_cascade(label="任務狀態管理", menu=status_menu)
+        
+        # 如果環境受限，添加重置選項
+        if hasattr(self.task, 'campus_restricted') and self.task.campus_restricted:
+            context_menu.add_separator()
+            context_menu.add_command(label="重置環境限制", command=self.reset_restriction)
+        
+        context_menu.add_separator()
+        context_menu.add_command(label="編輯任務", command=self.edit)
+        context_menu.add_command(label="刪除任務", command=self.delete)
+        
+        # 顯示選單
+        context_menu.tk_popup(event.x_root, event.y_root)
+    
+    def reset_status(self):
+        """重置任務狀態"""
+        self.task.sign_in_done = False
+        self.task.sign_out_done = False
+        
+        # 更新狀態標籤
+        status_text, status_color = self.get_status_info()
+        self.status_label.config(text=status_text, bg=status_color)
+        
+        # 調用回調函數更新任務
+        if self.on_update_status:
+            self.on_update_status(self.task)
+    
+    def reset_restriction(self):
+        """重置環境限制狀態"""
+        if hasattr(self.task, 'campus_restricted'):
+            self.task.campus_restricted = False
+            self.task.last_attempt_time = None
+            
+            # 更新狀態標籤
+            status_text, status_color = self.get_status_info()
+            self.status_label.config(text=status_text, bg=status_color)
+            
+            # 調用回調函數更新任務
+            if self.on_update_status:
+                self.on_update_status(self.task)
     
     def get_status_info(self):
         today = datetime.date.today().strftime("%Y-%m-%d")
@@ -958,7 +1067,8 @@ class ChronoHelper:
                                on_edit=self.edit_task,
                                on_delete=self.delete_task,
                                on_sign_in=self.perform_sign_in,
-                               on_sign_out=self.perform_sign_out)
+                               on_sign_out=self.perform_sign_out,
+                               on_update_status=self.update_task_status)  # 使用新方法作為回調
             task_card.pack(fill=tk.X, pady=5, padx=5)
     
     def add_task(self):
@@ -1332,9 +1442,15 @@ class ChronoHelper:
                     elif result_code == 0 and "請先簽退" in result_msg:  # 需要先簽退
                         self.log(f"簽到提示: {result_msg}，需要先完成簽退")
                         
+                        # 新增：顯示建議手動設置狀態的通知
                         if self.settings.get("global_notify", True) and task.notify:
                             self.show_notification(f"{task.name} 簽到提示", 
-                                                 f"您需要先完成簽退才能簽到\n{result_msg}")
+                                                 f"系統要求先完成簽退才能簽到\n\n如果您已在系統外完成簽到/簽退，請右鍵點擊任務卡片，選擇「任務狀態管理」手動設置狀態")
+                        
+                        # 新增：標記環境限制，避免重複提示
+                        task.campus_restricted = True
+                        task.last_attempt_time = datetime.datetime.now().isoformat()
+                        self.save_tasks()
                         
                         self.status_var.set(f"'{task.name}': 需要先簽退")
                         return False
@@ -1658,7 +1774,7 @@ class ChronoHelper:
                             self.log(f"任務 '{task.name}' 因校外環境限制暫停嘗試 (冷卻中: {int(30-elapsed_minutes)}分鐘)")
                             continue
                 
-                # 檢查簽到
+                # 檢查簽到 - 只對未手動標記為已完成的任務執行
                 if current_time >= task.sign_in_time and not task.sign_in_done:
                     result = self.perform_sign_in(task)
                     
@@ -1674,7 +1790,7 @@ class ChronoHelper:
                         task.sign_in_done = True
                         self.save_tasks()
                 
-                # 檢查簽退
+                # 檢查簽退 - 只對已簽到但未簽退的任務執行
                 if current_time >= task.sign_out_time and not task.sign_out_done and task.sign_in_done:
                     result = self.perform_sign_out(task)
                     
@@ -1942,6 +2058,25 @@ class ChronoHelper:
         if reset_count > 0:
             self.log(f"已重置 {reset_count} 個任務的環境限制狀態")
             self.save_tasks()
+    
+    def update_task_status(self, task):
+        """更新任務狀態
+        
+        Args:
+            task: 要更新的任務
+        """
+        # 保存更新後的任務
+        self.save_tasks()
+        
+        # 更新日誌
+        status_text = []
+        if task.sign_in_done:
+            status_text.append("已簽到")
+        if task.sign_out_done:
+            status_text.append("已簽退")
+        
+        status_str = " 和 ".join(status_text) if status_text else "未完成"
+        self.log(f"已手動更新任務 '{task.name}' 狀態: {status_str}")
 
 
 class ModernTaskDialog:
@@ -2136,5 +2271,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-                        
