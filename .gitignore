@@ -109,3 +109,9 @@ venv.bak/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# 忽略所有.log文件
+*.log
+*.json
+*.txt
+*.key
