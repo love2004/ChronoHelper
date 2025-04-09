@@ -140,21 +140,21 @@ class NetworkUtils:
             self.cache['check_in_progress'] = True
             
             # 輕量級檢測：獲取本機IP地址
-        try:
-            # 獲取本機名稱和IP地址
-            hostname = socket.gethostname()
-            ip_address = socket.gethostbyname(hostname)
+            try:
+                # 獲取本機名稱和IP地址
+                hostname = socket.gethostname()
+                ip_address = socket.gethostbyname(hostname)
                 
                 # 更新緩存
                 self.cache['ip_address'] = ip_address
                 self.cache['last_check_time'] = current_time
-            
-            # 檢查IP地址是否符合校內網絡特徵
-            is_campus = ip_address.startswith('163.23.')
+                
+                # 檢查IP地址是否符合校內網絡特徵
+                is_campus = ip_address.startswith('163.23.')
                 self.cache['is_campus'] = is_campus
-            
-            if verbose:
-                self.logger.log(f"檢測到本地IP地址: {ip_address}")
+                
+                if verbose:
+                    self.logger.log(f"檢測到本地IP地址: {ip_address}")
                     if is_campus:
                         self.logger.log("網絡檢測結果: 校內網絡 ✓")
                     else:
@@ -177,10 +177,13 @@ class NetworkUtils:
                 if verbose:
                     self.logger.log("本機IP不是校內網絡，在背景檢查第二躍點...")
                 
+                # 創建檢測線程函數
                 def check_hop_thread():
                     try:
                         # 使用設定中的超時值
                         timeout = self.settings.get("hop_check_timeout", 3)
+                        
+                        # 檢測第二躍點
                         second_hop_info = self.check_second_hop(verbose, timeout)
                         
                         # 檢查是否已關閉
@@ -190,7 +193,10 @@ class NetworkUtils:
                         # 更新緩存中的躍點信息和校內網絡狀態
                         with contextlib.suppress(Exception):
                             with self.lock:
+                                # 更新緩存
                                 self.cache['hop_info'] = second_hop_info
+                                
+                                # 如果第二躍點是校內網絡，更新is_campus標記
                                 if second_hop_info.get('is_campus', False):
                                     self.cache['is_campus'] = True
                                     if verbose:
@@ -203,22 +209,22 @@ class NetworkUtils:
                             self.logger.log(f"第二躍點檢測異常: {type(e).__name__} - {str(e)}")
                     finally:
                         # 確保標記被正確設置
-                        try:
+                        with contextlib.suppress(Exception):
                             self.cache['check_in_progress'] = False
-                        except:
-                            pass
                         
-                        # 從活動線程列表中移除
+                        # 從活動線程列表中移除自己
                         with contextlib.suppress(Exception):
                             if thread in self.active_threads:
                                 self.active_threads.remove(thread)
                 
-                # 在背景線程中執行躍點檢測，避免阻塞UI
+                # 創建線程
                 thread = threading.Thread(target=check_hop_thread, daemon=True)
-                thread.start()
                 
-                # 跟踪此線程
+                # 添加到活動線程列表
                 self.active_threads.append(thread)
+                
+                # 啟動線程
+                thread.start()
                 
                 # 釋放鎖，讓方法可以立即返回結果
                 self.lock.release()
@@ -235,8 +241,6 @@ class NetworkUtils:
             with contextlib.suppress(Exception):
                 if self.lock._is_owned():
                     self.lock.release()
-            
-            # 注意: check_in_progress 的設置已移至線程內部或提前返回的地方
     
     def check_second_hop(self, verbose=True, timeout=None):
         """檢測第二躍點是否在校內網絡環境
