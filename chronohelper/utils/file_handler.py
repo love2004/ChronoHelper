@@ -86,16 +86,16 @@ class FileHandler:
         return default_settings.copy()
     
     def save_settings(self, settings):
-        """保存應用設定
+        """保存設定到文件
         
         Args:
             settings: 設定字典
             
         Returns:
-            bool: 保存是否成功
+            bool: 操作是否成功
         """
         try:
-            # 創建設定的副本
+            # 防止修改原始數據
             settings_to_save = settings.copy()
             
             # 加密敏感數據
@@ -104,11 +104,16 @@ class FileHandler:
             if 'password' in settings_to_save and settings_to_save['password']:
                 settings_to_save['password'] = SettingsEncryption.encrypt_data(settings_to_save['password'])
             
+            # 寫入文件 (使用fsync確保立即寫入磁盤)
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(settings_to_save, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())  # 強制寫入磁盤
+            
+            self.logger.log("設定已保存到文件")
             return True
         except Exception as e:
-            self.logger.log(f"保存設定失敗: {str(e)}")
+            self.logger.log(f"保存設定時出錯: {str(e)}")
             return False
     
     def load_cookies(self):

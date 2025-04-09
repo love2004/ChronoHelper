@@ -18,5 +18,7 @@ APP_SETTINGS = {
     "default_sign_in": "09:00", # 默認簽到時間
     "default_sign_out": "18:00", # 默認簽退時間
     "session_refresh_interval": 240, # 會話刷新間隔（秒），默認4分鐘
-    "session_valid_time": 270  # 會話有效時間（秒），默認4.5分鐘
+    "session_valid_time": 270,  # 會話有效時間（秒），默認4.5分鐘
+    "enable_second_hop": False,  # 啟用第二躍點檢測（默認關閉）
+    "hop_check_timeout": 10      # 第二躍點檢測超時（秒）
 }
