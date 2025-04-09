@@ -407,6 +407,9 @@ class TaskCard(tk.Frame):
         status_text, status_color = self.get_status_info()
         self.status_label.config(text=status_text, bg=status_color)
         
+        # 更新UI以反映最新狀態
+        self.update_idletasks()
+        
         # 調用回調函數更新任務
         if self.on_update_status:
             self.on_update_status(self.task)
@@ -473,21 +476,36 @@ class TaskCard(tk.Frame):
         if hasattr(self.task, 'campus_restricted') and self.task.campus_restricted:
             return "環境受限", "#FF9800"  # 橙色表示環境受限
         
+        # 手動設置的狀態優先顯示
+        if task_date == today:
+            if self.task.sign_in_done and self.task.sign_out_done:
+                return "已完成", "#2ecc71"  # 綠色
+            elif self.task.sign_in_done:
+                now = datetime.datetime.now().strftime("%H:%M")
+                if now >= self.task.sign_out_time:
+                    return "待簽退", "#f39c12"  # 橙色
+                else:
+                    return "已簽到", "#3498db"  # 藍色
+        
+        # 日期狀態判斷
         if task_date < today:
-            return "已過期", "#95a5a6"
-        elif task_date > today:
-            return "等待中", "#3498db"
-        else:
             if self.task.sign_in_done and self.task.sign_out_done:
                 return "已完成", "#2ecc71"
-            elif self.task.sign_in_done:
-                return "已簽到", "#f39c12"
             else:
-                now = datetime.datetime.now().strftime("%H:%M")
+                return "已過期", "#95a5a6"  # 灰色
+        elif task_date > today:
+            return "等待中", "#3498db"  # 藍色
+        else:  # 今天的任務
+            now = datetime.datetime.now().strftime("%H:%M")
+            if not self.task.sign_in_done and not self.task.sign_out_done:
                 if now < self.task.sign_in_time:
-                    return "今日待執行", "#3498db"
+                    return "今日待執行", "#3498db"  # 藍色
                 else:
-                    return "待處理", "#e74c3c"
+                    return "待處理", "#e74c3c"  # 紅色
+            elif self.task.sign_in_done and not self.task.sign_out_done:
+                return "已簽到", "#f39c12"  # 橙色
+            else:
+                return "已完成", "#2ecc71"  # 綠色
     
     def edit(self):
         if self.on_edit:
@@ -2226,6 +2244,9 @@ class ChronoHelper:
         """
         # 保存更新後的任務
         self.save_tasks()
+        
+        # 強制刷新任務列表，確保UI顯示更新
+        self.refresh_task_list()
         
         # 更新日誌
         status_text = []
