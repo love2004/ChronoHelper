@@ -39,7 +39,7 @@ COLORS = {
 APP_SETTINGS = {
     "global_notify": True,    # 全局通知開關
     "check_interval": 30,     # 任務檢查間隔（秒）
-    "api_url": "",            # API URL
+    "api_url": "https://adm_acc.dyu.edu.tw/entrance/index.php",  # API基礎URL
     "login_url": "https://adm_acc.dyu.edu.tw/entrance/save_id.php", # 登入URL
     "sign_in_url": "https://adm_acc.dyu.edu.tw/budget/prj_epfee/kernel/kernel_prj_carddata_edit.php?page=NDgy", # 簽到URL
     "sign_out_url": "https://adm_acc.dyu.edu.tw/budget/prj_epfee/kernel/kernel_prj_carddata_edit.php?page=NDgy", # 簽退URL
@@ -48,7 +48,9 @@ APP_SETTINGS = {
     "name": "",               # 用戶姓名
     "auto_start": True,       # 自動啟動調度器
     "default_sign_in": "09:00", # 默認簽到時間
-    "default_sign_out": "18:00" # 默認簽退時間
+    "default_sign_out": "18:00", # 默認簽退時間
+    "session_refresh_interval": 240, # 會話刷新間隔（秒），默認4分鐘
+    "session_valid_time": 270  # 會話有效時間（秒），默認4.5分鐘
 }
 
 class SettingsEncryption:
@@ -620,6 +622,31 @@ class SettingsDialog:
                    textvariable=self.interval_var, width=5).pack(side=tk.LEFT)
         tk.Label(interval_frame, text="秒", bg=COLORS["card"]).pack(side=tk.LEFT, padx=5)
         
+        # 新增：會話維持設定
+        tk.Label(general_frame, text="會話維持設定", font=("Arial", 11, "bold"), 
+                 bg=COLORS["card"], fg=COLORS["text"]).grid(row=5, column=0, sticky=tk.W, pady=(20,5))
+        # 會話刷新間隔
+        session_frame = tk.Frame(general_frame, bg=COLORS["card"])
+        session_frame.grid(row=6, column=0, sticky=tk.W, padx=15)
+        tk.Label(session_frame, text="會話刷新間隔:", bg=COLORS["card"]).pack(side=tk.LEFT, padx=(0,5))
+        self.session_refresh_var = tk.IntVar(value=settings.get("session_refresh_interval", 240))
+        ttk.Spinbox(session_frame, from_=60, to=600, increment=30, 
+                   textvariable=self.session_refresh_var, width=5).pack(side=tk.LEFT)
+        tk.Label(session_frame, text="秒 (建議240秒)", bg=COLORS["card"], fg=COLORS["light_text"]).pack(side=tk.LEFT, padx=5)
+        # 會話有效時間
+        valid_frame = tk.Frame(general_frame, bg=COLORS["card"])
+        valid_frame.grid(row=7, column=0, sticky=tk.W, padx=15, pady=(5,0))
+        tk.Label(valid_frame, text="會話有效時間:", bg=COLORS["card"]).pack(side=tk.LEFT, padx=(0,5))
+        self.session_valid_var = tk.IntVar(value=settings.get("session_valid_time", 270))
+        ttk.Spinbox(valid_frame, from_=120, to=600, increment=30, 
+                   textvariable=self.session_valid_var, width=5).pack(side=tk.LEFT)
+        tk.Label(valid_frame, text="秒 (建議270秒)", bg=COLORS["card"], fg=COLORS["light_text"]).pack(side=tk.LEFT, padx=5)
+        # 會話設定說明
+        session_info = tk.Label(general_frame, 
+            text="注意: 會話刷新間隔應小於會話有效時間，建議差值約30秒",
+            bg=COLORS["card"], fg=COLORS["light_text"], wraplength=350, justify=tk.LEFT)
+        session_info.grid(row=8, column=0, sticky=tk.W, padx=15, pady=(5, 0))
+        
         # API設定內容
         tk.Label(api_frame, text="API連接設定", font=("Arial", 11, "bold"), 
                  bg=COLORS["card"], fg=COLORS["text"]).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0,15))
@@ -851,7 +878,12 @@ class SettingsDialog:
         self.settings["global_notify"] = self.notify_var.get()
         self.settings["auto_start"] = self.autostart_var.get()
         self.settings["check_interval"] = self.interval_var.get()
-        self.settings["api_url"] = self.api_url_var.get().strip()
+        
+        # 新增：保存會話維持設定
+        self.settings["session_refresh_interval"] = self.session_refresh_var.get()
+        self.settings["session_valid_time"] = self.session_valid_var.get()
+        
+        self.settings["api_url"] = self.api_url_var.get().strip() or "https://adm_acc.dyu.edu.tw/entrance/index.php"
         self.settings["login_url"] = self.login_url_var.get().strip() or "https://adm_acc.dyu.edu.tw/entrance/save_id.php"
         self.settings["sign_in_url"] = self.sign_in_url_var.get().strip() or "https://adm_acc.dyu.edu.tw/budget/prj_epfee/kernel/kernel_prj_carddata_edit.php?page=NDgy"
         self.settings["sign_out_url"] = self.sign_out_url_var.get().strip() or "https://adm_acc.dyu.edu.tw/budget/prj_epfee/kernel/kernel_prj_carddata_edit.php?page=NDgy"
@@ -897,7 +929,12 @@ class ChronoHelper:
         
         self.login_status = False
         self.last_login_time = None
-        self.login_valid_time = 270  # Cookie有效時間(秒)，設為4.5分鐘（5分鐘會話 - 30秒緩衝）
+        
+        # 載入設定
+        self.settings = self.load_settings()
+        
+        # 從設定中讀取會話有效時間
+        self.login_valid_time = self.settings.get("session_valid_time", 270)
         
         # 網絡狀態屬性
         self.is_campus_network = False
@@ -906,9 +943,6 @@ class ChronoHelper:
         # 新增：上次記錄的網絡環境日誌時間和狀態
         self.last_network_log_time = None
         self.last_network_log_status = None
-        
-        # 載入設定
-        self.settings = self.load_settings()
         
         # 先創建界面元素
         self.create_widgets()
@@ -1397,19 +1431,18 @@ class ChronoHelper:
             return False
     
     def ensure_login(self):
-        """確保用戶已登入，必要時重新登入
-        
-        Returns:
-            bool: 是否已成功登入
-        """
+        """確保用戶已登入，必要時重新登入"""
         # 如果未登入或登入已過期，則執行登入
         if not self.login_status:
             return self.login()
         
         # 檢查登入狀態是否過期
         if self.last_login_time:
+            # 使用最新的設定值
+            valid_time = self.settings.get("session_valid_time", 270)
             elapsed = (datetime.datetime.now() - self.last_login_time).total_seconds()
-            if elapsed >= self.login_valid_time:
+            
+            if elapsed >= valid_time:
                 self.log("會話可能已過期，重新登入")
                 return self.login(force=True)
         
@@ -1418,31 +1451,41 @@ class ChronoHelper:
     def keep_session_alive(self):
         """定期刷新會話以保持登入狀態"""
         try:
-            # 如果已登入且距離上次登入不超過4分鐘
+            # 如果已登入且距離上次登入不超過設定的刷新間隔
             if self.login_status and self.last_login_time:
+                # 從設定中獲取刷新間隔
+                refresh_interval = self.settings.get("session_refresh_interval", 240)
+                valid_time = self.settings.get("session_valid_time", 270)
+                
+                # 更新實例變量以確保其他方法使用最新設定
+                self.login_valid_time = valid_time
+                
                 elapsed = (datetime.datetime.now() - self.last_login_time).total_seconds()
                 
-                # 在4分鐘後刷新會話
-                if 240 <= elapsed < 270:  # 4-4.5分鐘之間
+                # 在刷新間隔後刷新會話
+                if refresh_interval <= elapsed < valid_time:
                     self.log("會話即將過期，正在刷新...")
                     
-                    # 訪問一個簡單頁面來刷新會話
-                    refresh_url = "https://adm_acc.dyu.edu.tw/continue_to_use.php"
+                    # 使用API基礎URL刷新會話
+                    refresh_url = self.settings.get("api_url", "https://adm_acc.dyu.edu.tw/entrance/index.php")
+                    
                     headers = {
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
                     }
                     
-                    data = {
-                        "action": "set_last_active"
-                    }
-                    
-                    response = self.session.post(refresh_url, data=data, headers=headers, timeout=10)
+                    # 嘗試訪問API基礎URL刷新會話
+                    response = self.session.get(refresh_url, headers=headers, timeout=10)
                     
                     if response.status_code == 200:
-                        self.last_login_time = datetime.datetime.now()
-                        self.log("會話已成功刷新")
+                        # 檢查頁面內容確認登入狀態維持
+                        if "login_id" in response.text:  # 如果包含登入表單，說明session已失效
+                            self.log("會話已過期，需要重新登入")
+                            self.login_status = False
+                        else:
+                            self.last_login_time = datetime.datetime.now()
+                            self.log("會話已成功刷新")
                     else:
-                        self.log(f"刷新會話失敗，將在下次檢查時重新登入")
+                        self.log(f"刷新會話失敗，狀態碼: {response.status_code}，將在下次檢查時重新登入")
                         self.login_status = False
         except Exception as e:
             self.log(f"刷新會話時出錯: {str(e)}")
