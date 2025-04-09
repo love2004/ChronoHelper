@@ -490,13 +490,15 @@ class ChronoHelper:
         self.logger.log(f"通知: {title} - {message}")
     
     def initial_network_check(self):
-        """初始化時檢測網絡環境"""
+        """初始網絡環境檢測"""
         self.logger.log("正在進行初始網絡環境檢測...")
         is_campus, ip, hop_info = self.network_utils.check_campus_network(verbose=True)
-        self.update_network_status(is_campus, ip, hop_info)
         
-        # 設置定期檢測
-        self.root.after(60000, self.periodic_network_check)  # 每分鐘檢測一次
+        # 直接在主線程中更新UI，確保界面立即更新
+        self.update_network_status(is_campus, ip, hop_info, force_update=True)
+        
+        # 啟動定期檢測
+        self.root.after(5000, self.periodic_network_check)  # 5秒後開始第一次定期檢測
     
     def periodic_network_check(self):
         """定期檢測網絡環境"""
@@ -505,70 +507,92 @@ class ChronoHelper:
             
         # 執行網絡檢測，但避免重複記錄
         is_campus, ip, hop_info = self.network_utils.check_campus_network(verbose=False)
-        self.update_network_status(is_campus, ip, hop_info)
+        
+        # 強制更新UI，確保界面狀態和後端檢測結果同步
+        self.root.after(0, lambda: self.update_network_status(is_campus, ip, hop_info, force_update=True))
         
         # 繼續定期檢測
-        self.root.after(60000, self.periodic_network_check)  # 每分鐘檢測一次
+        self.root.after(30000, self.periodic_network_check)  # 每30秒檢測一次，比之前更頻繁
     
-    def update_network_status(self, is_campus, ip, hop_info=None):
-        """更新網絡狀態顯示"""
+    def update_network_status(self, is_campus, ip, hop_info=None, force_update=False):
+        """更新網絡狀態顯示
+        
+        Args:
+            is_campus: 是否為校內網絡
+            ip: IP地址
+            hop_info: 躍點信息
+            force_update: 是否強制更新UI，不考慮狀態是否變化
+        """
         # 檢查是否有前一個狀態
         had_previous_state = hasattr(self, 'is_campus_network')
         status_changed = had_previous_state and self.is_campus_network != is_campus
         
-        # 如果有前一個狀態且狀態發生變化，則發送通知
-        if status_changed:
-            if is_campus:
-                self.logger.log("網絡環境已變更: 校外 -> 校內")
+        # 如果狀態變化或需要強制更新
+        if status_changed or force_update:
+            # 只在狀態變化時發出更改通知
+            if status_changed:
+                if is_campus:
+                    self.logger.log("網絡環境已變更: 校外 -> 校內")
+                    
+                    # 如果是通過第二躍點檢測到的，則顯示相關信息
+                    if hop_info and hop_info.get('is_campus', False) and not ip.startswith('163.23.'):
+                        hop_ip = hop_info.get('ip', '未知')
+                        self.logger.log(f"通過第二躍點識別為校內網絡 (第二躍點IP: {hop_ip})")
+                        self.show_notification("網絡環境變更", f"檢測到第二躍點 {hop_ip} 為校內網絡\n現在可以正常執行簽到/簽退操作")
+                    else:
+                        self.show_notification("網絡環境變更", "檢測到您已連接到校內網絡\n現在可以正常執行簽到/簽退操作")
+                    
+                    # 重置校內網絡限制狀態
+                    reset_count = self.reset_campus_restrictions()
+                    
+                    # 立即觸發一次任務調度檢查
+                    if hasattr(self, 'scheduler') and self.scheduler.running:
+                        self.root.after(1000, self.scheduler.check_tasks)
+                else:
+                    self.logger.log("網絡環境已變更: 校內 -> 校外")
+                    self.show_notification("網絡環境變更", "檢測到您已離開校內網絡\n簽到/簽退操作將暫停執行")
+            elif not had_previous_state:
+                # 首次檢測，記錄初始狀態
+                network_type = "校內" if is_campus else "校外"
                 
                 # 如果是通過第二躍點檢測到的，則顯示相關信息
+                if is_campus and hop_info and hop_info.get('is_campus', False) and not ip.startswith('163.23.'):
+                    hop_ip = hop_info.get('ip', '未知')
+                    self.logger.log(f"初始網絡環境檢測: 校內網絡 (通過第二躍點 {hop_ip})")
+                else:
+                    self.logger.log(f"初始網絡環境檢測: {network_type} 網絡 (IP: {ip})")
+        
+            # 只在首次檢測或IP變更時記錄IP
+            if not had_previous_state or self.current_ip != ip:
+                self.logger.log(f"IP地址: {ip}")
+            
+            # 更新UI顯示
+            if is_campus:
+                # 如果是通過第二躍點檢測到的，則在UI中顯示相關信息
                 if hop_info and hop_info.get('is_campus', False) and not ip.startswith('163.23.'):
                     hop_ip = hop_info.get('ip', '未知')
-                    self.logger.log(f"通過第二躍點識別為校內網絡 (第二躍點IP: {hop_ip})")
-                    self.show_notification("網絡環境變更", f"檢測到第二躍點 {hop_ip} 為校內網絡\n現在可以正常執行簽到/簽退操作")
+                    self.network_status_var.set(f"校內網絡(通過躍點) ✓ ({hop_ip})")
                 else:
-                    self.show_notification("網絡環境變更", "檢測到您已連接到校內網絡\n現在可以正常執行簽到/簽退操作")
-                    
-                # 重置校內網絡限制狀態
-                self.reset_campus_restrictions()
+                    self.network_status_var.set(f"校內網絡 ✓ ({ip})")
+                self.network_status_label.config(fg="#2ecc71")  # 綠色
             else:
-                self.logger.log("網絡環境已變更: 校內 -> 校外")
-                self.show_notification("網絡環境變更", "檢測到您已離開校內網絡\n簽到/簽退操作將暫停執行")
-        elif not had_previous_state:
-            # 首次檢測，記錄初始狀態
-            network_type = "校內" if is_campus else "校外"
+                self.network_status_var.set(f"校外網絡 ⚠️ ({ip})")
+                self.network_status_label.config(fg="#e74c3c")  # 紅色
             
-            # 如果是通過第二躍點檢測到的，則顯示相關信息
-            if is_campus and hop_info and hop_info.get('is_campus', False) and not ip.startswith('163.23.'):
-                hop_ip = hop_info.get('ip', '未知')
-                self.logger.log(f"初始網絡環境檢測: 校內網絡 (通過第二躍點 {hop_ip})")
-            else:
-                self.logger.log(f"初始網絡環境檢測: {network_type} 網絡 (IP: {ip})")
-        
-        # 只在首次檢測或IP變更時記錄IP
-        if not had_previous_state or self.current_ip != ip:
-            self.logger.log(f"IP地址: {ip}")
-        
-        # 更新UI顯示
-        if is_campus:
-            # 如果是通過第二躍點檢測到的，則在UI中顯示相關信息
-            if hop_info and hop_info.get('is_campus', False) and not ip.startswith('163.23.'):
-                hop_ip = hop_info.get('ip', '未知')
-                self.network_status_var.set(f"校內網絡(通過躍點) ✓ ({hop_ip})")
-            else:
-                self.network_status_var.set(f"校內網絡 ✓ ({ip})")
-            self.network_status_label.config(fg="#2ecc71")  # 綠色
-        else:
-            self.network_status_var.set(f"校外網絡 ⚠️ ({ip})")
-            self.network_status_label.config(fg="#e74c3c")  # 紅色
-        
-        # 記錄網絡狀態以供任務檢查使用
-        self.is_campus_network = is_campus
-        self.current_ip = ip
-        
-        # 記錄上次網絡環境日誌時間和狀態
-        self.last_network_log_time = datetime.datetime.now()
-        self.last_network_log_status = is_campus
+            # 記錄網絡狀態以供任務檢查使用
+            self.is_campus_network = is_campus
+            self.current_ip = ip
+            
+            # 記錄上次網絡環境日誌時間和狀態
+            self.last_network_log_time = datetime.datetime.now()
+            self.last_network_log_status = is_campus
+            
+            # 強制更新UI
+            self.root.update_idletasks()
+            
+            # 如果狀態發生變化，刷新任務列表顯示
+            if status_changed:
+                self.refresh_task_list()
     
     def refresh_network_status(self):
         """手動刷新網絡狀態"""
@@ -587,15 +611,25 @@ class ChronoHelper:
             # 保存當前狀態以檢測變化
             old_status = getattr(self, 'is_campus_network', None)
             
-            # 更新網絡狀態
-            self.update_network_status(is_campus, ip, hop_info)
+            # 更新網絡狀態（強制更新界面）
+            self.update_network_status(is_campus, ip, hop_info, force_update=True)
             
-            # 如果是校內網絡或網絡狀態從校外變為校內，強制重置所有任務的環境限制
-            if is_campus or (old_status is False and is_campus is True):
-                reset_count = self.reset_campus_restrictions()
-                if reset_count > 0:
-                    self.show_notification("環境限制已重置", 
-                                         f"已重置 {reset_count} 個受環境限制的任務\n現在可以正常執行了")
+            # 如果網絡狀態發生變化，進行額外處理
+            if old_status != is_campus:
+                if is_campus:
+                    # 從校外變為校內：重置環境限制並觸發任務檢查
+                    reset_count = self.reset_campus_restrictions()
+                    if reset_count > 0:
+                        self.show_notification("環境限制已重置", 
+                                             f"已重置 {reset_count} 個受環境限制的任務\n現在可以正常執行了")
+                    
+                    # 立即觸發一次任務調度檢查，不需要等待下一個調度周期
+                    if hasattr(self, 'scheduler') and self.scheduler.running:
+                        self.logger.log("網絡環境變更，立即檢查待執行任務...")
+                        self.root.after(1000, self.scheduler.check_tasks)
+                else:
+                    # 從校內變為校外：更新任務列表顯示
+                    self.logger.log("網絡環境變更為校外，暫停所有需要校內網絡的任務")
             
             # 強制刷新任務列表顯示
             self.refresh_task_list()

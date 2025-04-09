@@ -161,7 +161,7 @@ def main():
         '-m', 
         'PyInstaller',
         'main.py',                   # 主程序入口點
-        '--name=ChronoHelper',       # 輸出文件名
+        '--name=ChronoHelper v1.1.0',       # 輸出文件名
         '--onefile',                 # 單一文件模式
         '--windowed',                # GUI模式，不顯示控制台
         '--clean',                   # 清理臨時檔案
