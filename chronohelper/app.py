@@ -169,6 +169,11 @@ class ChronoHelper:
                                          activeforeground="white")
         refresh_network_button.pack(side=tk.RIGHT)
         
+        # 添加powered by zhijing標籤
+        powered_label = tk.Label(status_frame, text="Powered by zhijing", 
+                               fg="white", bg=COLORS["primary_dark"], font=("Arial", 10))
+        powered_label.pack(side=tk.RIGHT, padx=(0, 10))
+        
         # 右下角信息
         info_label = tk.Label(status_frame, text="ChronoHelper v1.0", 
                             fg="white", bg=COLORS["primary_dark"], font=("Arial", 10))
