@@ -1,25 +1,21 @@
-import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog, filedialog
-import schedule
 import time
 import json
 import os
 import threading
 import datetime
 import requests
-from requests.exceptions import RequestException
-from tkinter import scrolledtext
 import uuid
-import webbrowser
-from PIL import Image, ImageTk  # 需要安裝: pip install pillow
 import re
-from bs4 import BeautifulSoup  # 需要安裝: pip install beautifulsoup4
 import socket
-import pickle
-import urllib3
 import base64
 import hashlib
+import tkinter as tk
+
 from cryptography.fernet import Fernet
+from bs4 import BeautifulSoup
+from requests.exceptions import RequestException
+from tkinter import scrolledtext
+from tkinter import ttk, messagebox
 
 # 定義顏色方案
 COLORS = {
