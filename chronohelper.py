@@ -689,6 +689,10 @@ class ChronoHelper:
         self.is_campus_network = False
         self.current_ip = "未知"
         
+        # 新增：上次記錄的網絡環境日誌時間和狀態
+        self.last_network_log_time = None
+        self.last_network_log_status = None
+        
         # 載入設定
         self.settings = self.load_settings()
         
@@ -1612,9 +1616,30 @@ class ChronoHelper:
         
         # 檢查網絡環境
         if hasattr(self, 'is_campus_network') and not self.is_campus_network:
-            self.log("檢測到校外網絡環境，跳過任務執行")
+            now = datetime.datetime.now()
+            
+            # 新增：日誌頻率和狀態檢查
+            should_log = False
+            
+            # 檢查上次輸出日誌的時間和網絡狀態
+            if self.last_network_log_time is None:  # 首次檢測
+                should_log = True
+            elif (now - self.last_network_log_time).total_seconds() >= 300:  # 至少間隔5分鐘
+                should_log = True
+            elif self.last_network_log_status != self.is_campus_network:  # 網絡狀態發生變化
+                should_log = True
+                
+            if should_log:
+                self.log("檢測到校外網絡環境，跳過任務執行")
+                self.last_network_log_time = now
+                self.last_network_log_status = self.is_campus_network
+                
+            # 更新狀態欄但不記錄日誌
             self.status_var.set("校外網絡環境，任務已暫停")
             return  # 如果在校外網絡，直接跳過所有任務
+        else:
+            # 在校內網絡環境，更新記錄狀態
+            self.last_network_log_status = self.is_campus_network
         
         # 檢查任務
         now = datetime.datetime.now()
@@ -1748,31 +1773,28 @@ class ChronoHelper:
         except Exception as e:
             print(f"清理日誌時出錯: {str(e)}")
     
-    def check_campus_network(self):
+    def check_campus_network(self, verbose=True):
         """檢測是否在校內網絡環境（163.23.x.x）
         
+        Args:
+            verbose: 是否輸出檢測過程的日誌，默認為True
+            
         Returns:
             bool: 是否在校內網絡
             str: 當前IP地址
         """
         try:
-            # 方法1: 利用外部服務獲取公網IP
-            response = requests.get('https://api.ipify.org?format=json', timeout=5)
-            if response.status_code == 200:
-                ip_address = response.json()['ip']
-                is_campus = ip_address.startswith('163.23.')
-                self.log(f"檢測到當前IP地址: {ip_address}")
-                return is_campus, ip_address
-                
-            # 方法2: 如果外部服務失敗，使用socket獲取本地IP
+
             hostname = socket.gethostname()
             ip_address = socket.gethostbyname(hostname)
             is_campus = ip_address.startswith('163.23.')
-            self.log(f"檢測到本地IP地址: {ip_address}")
+            if verbose:
+                self.log(f"檢測到本地IP地址: {ip_address}")
             return is_campus, ip_address
             
         except Exception as e:
-            self.log(f"IP地址檢測失敗: {str(e)}")
+            if verbose:
+                self.log(f"IP地址檢測失敗: {str(e)}")
             return False, "未知"
     
     def handle_work_time_warning(self, task, message):
@@ -1820,23 +1842,29 @@ class ChronoHelper:
     
     def initial_network_check(self):
         """初始化時檢測網絡環境"""
-        is_campus, ip = self.check_campus_network()
+        self.log("正在進行初始網絡環境檢測...")
+        is_campus, ip = self.check_campus_network(verbose=True)  # 明確指定顯示詳細信息
         self.update_network_status(is_campus, ip)
         
         # 設置定期檢測
         self.root.after(60000, self.periodic_network_check)  # 每分鐘檢測一次
-        
+    
     def periodic_network_check(self):
         """定期檢測網絡環境"""
         if not self.scheduler_running:
             return  # 如果調度器已停止，不再檢測
             
-        is_campus, ip = self.check_campus_network()
-        self.update_network_status(is_campus, ip)
+        # 正常執行網絡檢測，但避免在日誌中重複記錄過程
+        try:
+            is_campus, ip = self.check_campus_network(verbose=False)  # 添加verbose參數
+            self.update_network_status(is_campus, ip)
+        except Exception as e:
+            # 只記錄檢測失敗的情況
+            self.log(f"定期網絡檢測失敗: {str(e)}")
         
         # 繼續定期檢測
         self.root.after(60000, self.periodic_network_check)  # 每分鐘檢測一次
-        
+    
     def update_network_status(self, is_campus, ip):
         """更新網絡狀態顯示
         
@@ -1846,16 +1874,28 @@ class ChronoHelper:
         """
         # 檢查是否有前一個狀態
         had_previous_state = hasattr(self, 'is_campus_network')
+        status_changed = had_previous_state and self.is_campus_network != is_campus
         
         # 如果有前一個狀態且狀態發生變化，則發送通知
-        if had_previous_state and self.is_campus_network != is_campus:
+        if status_changed:
             if is_campus:
                 self.log("網絡環境已變更: 校外 -> 校內")
                 self.show_notification("網絡環境變更", "檢測到您已連接到校內網絡\n現在可以正常執行簽到/簽退操作")
+                # 重置校內網絡限制狀態
+                self.reset_campus_restrictions()
             else:
                 self.log("網絡環境已變更: 校內 -> 校外")
                 self.show_notification("網絡環境變更", "檢測到您已離開校內網絡\n簽到/簽退操作將暫停執行")
+        elif not had_previous_state:
+            # 首次檢測，記錄初始狀態
+            network_type = "校內" if is_campus else "校外"
+            self.log(f"初始網絡環境檢測: {network_type} 網絡 (IP: {ip})")
         
+        # 只在首次檢測或IP變更時記錄IP
+        if not had_previous_state or self.current_ip != ip:
+            self.log(f"IP地址: {ip}")
+        
+        # 更新UI顯示
         if is_campus:
             self.network_status_var.set(f"校內網絡 ✓ ({ip})")
             self.network_status_label.config(fg="#2ecc71")  # 綠色
@@ -1866,6 +1906,10 @@ class ChronoHelper:
         # 記錄網絡狀態以供任務檢查使用
         self.is_campus_network = is_campus
         self.current_ip = ip
+        
+        # 記錄上次網絡環境日誌時間和狀態
+        self.last_network_log_time = datetime.datetime.now()
+        self.last_network_log_status = is_campus
     
     def refresh_network_status(self):
         """手動刷新網絡狀態"""
@@ -1877,9 +1921,27 @@ class ChronoHelper:
     
     def _refresh_network_status_task(self):
         """刷新網絡狀態實際任務"""
-        is_campus, ip = self.check_campus_network()
-        self.update_network_status(is_campus, ip)
-        self.log(f"網絡狀態已更新: {'校內' if is_campus else '校外'} 網絡，IP: {ip}")
+        try:
+            self.log("正在刷新網絡狀態...")
+            is_campus, ip = self.check_campus_network(verbose=True)  # 手動刷新時顯示詳細信息
+            self.update_network_status(is_campus, ip)
+        except Exception as e:
+            self.log(f"網絡狀態刷新失敗: {str(e)}")
+            self.network_status_var.set("網絡檢測失敗")
+            self.network_status_label.config(fg="#e74c3c")  # 紅色
+    
+    def reset_campus_restrictions(self):
+        """當網絡狀態變為校內時，重置所有任務的環境限制狀態"""
+        reset_count = 0
+        for task in self.tasks:
+            if hasattr(task, 'campus_restricted') and task.campus_restricted:
+                task.campus_restricted = False
+                task.last_attempt_time = None
+                reset_count += 1
+        
+        if reset_count > 0:
+            self.log(f"已重置 {reset_count} 個任務的環境限制狀態")
+            self.save_tasks()
 
 
 class ModernTaskDialog:
