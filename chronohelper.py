@@ -195,7 +195,7 @@ class ModernButton(tk.Button):
 
 class TaskCard(tk.Frame):
     """任務卡片元件，顯示單個任務信息"""
-    def __init__(self, master, task, on_edit=None, on_delete=None, on_sign_in=None, on_sign_out=None, on_update_status=None):
+    def __init__(self, master, task, on_edit=None, on_delete=None, on_sign_in=None, on_sign_out=None, on_update_status=None, main_canvas=None):
         super().__init__(master, bg=COLORS["card"], padx=15, pady=15)
         self.task = task
         self.on_edit = on_edit
@@ -203,13 +203,110 @@ class TaskCard(tk.Frame):
         self.on_sign_in = on_sign_in
         self.on_sign_out = on_sign_out
         self.on_update_status = on_update_status
+        self.main_canvas = main_canvas  # 保存主Canvas的引用，用於滾動
         
         self.config(highlightbackground=COLORS["border"], highlightthickness=1)
         
         self.create_widgets()
         
-        # 綁定右鍵選單
+        # 只綁定右鍵事件，其他事件不阻斷
         self.bind("<Button-3>", self.show_context_menu)
+        
+        # 綁定滾輪事件
+        self.bind_wheel_events()
+    
+    def bind_wheel_events(self):
+        """綁定滾輪事件到所有子元素"""
+        # 在Windows上綁定MouseWheel事件
+        if os.name == 'nt':
+            self.bind("<MouseWheel>", self._on_mousewheel)
+            for child in self.winfo_children():
+                self._bind_wheel_to_children(child, "<MouseWheel>", self._on_mousewheel)
+        # 在Linux/MacOS上綁定Button-4和Button-5事件
+        else:
+            self.bind("<Button-4>", self._on_mousewheel_up)
+            self.bind("<Button-5>", self._on_mousewheel_down)
+            for child in self.winfo_children():
+                self._bind_wheel_to_children(child, "<Button-4>", self._on_mousewheel_up)
+                self._bind_wheel_to_children(child, "<Button-5>", self._on_mousewheel_down)
+    
+    def _bind_wheel_to_children(self, widget, event, callback):
+        """遞迴綁定滾輪事件到所有子元素"""
+        widget.bind(event, callback)
+        for child in widget.winfo_children():
+            self._bind_wheel_to_children(child, event, callback)
+    
+    def _on_mousewheel(self, event):
+        """Windows滾輪事件處理"""
+        if self.main_canvas:
+            # 將滾輪事件傳遞給Canvas
+            self.main_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+    
+    def _on_mousewheel_up(self, event):
+        """Linux/MacOS向上滾動事件處理"""
+        if self.main_canvas:
+            self.main_canvas.yview_scroll(-1, "units")
+    
+    def _on_mousewheel_down(self, event):
+        """Linux/MacOS向下滾動事件處理"""
+        if self.main_canvas:
+            self.main_canvas.yview_scroll(1, "units")
+    
+    def bind_right_click_to_children(self, widget):
+        """只綁定右鍵選單，不綁定其他事件"""
+        widget.bind("<Button-3>", self.show_context_menu)
+        for child in widget.winfo_children():
+            self.bind_right_click_to_children(child)
+    
+    def show_context_menu(self, event):
+        """顯示右鍵選單，只阻止右鍵事件的傳播"""
+        context_menu = tk.Menu(self, tearoff=0)
+        
+        # 狀態管理子選單
+        status_menu = tk.Menu(context_menu, tearoff=0)
+        
+        # 簽到狀態選項
+        status_menu.add_command(
+            label="✓ 標記為已簽到" if not self.task.sign_in_done else "❌ 標記為未簽到",
+            command=lambda: self.update_task_status("sign_in", not self.task.sign_in_done)
+        )
+        
+        # 簽退狀態選項
+        status_menu.add_command(
+            label="✓ 標記為已簽退" if not self.task.sign_out_done else "❌ 標記為未簽退",
+            command=lambda: self.update_task_status("sign_out", not self.task.sign_out_done)
+        )
+        
+        # 重置狀態選項
+        status_menu.add_separator()
+        status_menu.add_command(
+            label="重置所有狀態",
+            command=self.reset_status
+        )
+        
+        # 快速設置選項
+        status_menu.add_separator()
+        status_menu.add_command(
+            label="一鍵設為完成",
+            command=self.set_all_complete
+        )
+        
+        # 將狀態選單添加到主選單
+        context_menu.add_cascade(label="任務狀態管理", menu=status_menu)
+        
+        # 如果環境受限，添加重置選項
+        if hasattr(self.task, 'campus_restricted') and self.task.campus_restricted:
+            context_menu.add_command(label="重置環境限制", command=self.reset_restriction)
+        
+        context_menu.add_separator()
+        context_menu.add_command(label="編輯任務", command=self.edit)
+        context_menu.add_command(label="刪除任務", command=self.delete)
+        
+        # 顯示選單
+        context_menu.tk_popup(event.x_root, event.y_root)
+        
+        # 只阻止右鍵事件繼續傳播
+        return "break"
     
     def create_widgets(self):
         # 任務標題
@@ -285,14 +382,6 @@ class TaskCard(tk.Frame):
         # 將右鍵菜單綁定到所有子元素
         self.bind_right_click_to_children(self)
     
-    def bind_right_click_to_children(self, widget):
-        """遞迴將右鍵選單事件綁定到所有子元素"""
-        widget.bind("<Button-3>", self.show_context_menu)
-        
-        # 遞迴綁定到所有子元素
-        for child in widget.winfo_children():
-            self.bind_right_click_to_children(child)
-    
     def update_task_status(self, status_type, value):
         """更新任務狀態
         
@@ -319,56 +408,6 @@ class TaskCard(tk.Frame):
         # 調用回調函數更新任務
         if self.on_update_status:
             self.on_update_status(self.task)
-    
-    def show_context_menu(self, event):
-        """顯示右鍵選單"""
-        context_menu = tk.Menu(self, tearoff=0)
-        
-        # 狀態管理子選單
-        status_menu = tk.Menu(context_menu, tearoff=0)
-        
-        # 簽到狀態選項
-        status_menu.add_command(
-            label="✓ 標記為已簽到" if not self.task.sign_in_done else "❌ 標記為未簽到",
-            command=lambda: self.update_task_status("sign_in", not self.task.sign_in_done)
-        )
-        
-        # 簽退狀態選項
-        status_menu.add_command(
-            label="✓ 標記為已簽退" if not self.task.sign_out_done else "❌ 標記為未簽退",
-            command=lambda: self.update_task_status("sign_out", not self.task.sign_out_done)
-        )
-        
-        # 重置狀態選項
-        status_menu.add_separator()
-        status_menu.add_command(
-            label="重置所有狀態",
-            command=self.reset_status
-        )
-        
-        # 快速設置選項
-        status_menu.add_separator()
-        status_menu.add_command(
-            label="一鍵設為完成",
-            command=self.set_all_complete
-        )
-        
-        # 將狀態選單添加到主選單
-        context_menu.add_cascade(label="任務狀態管理", menu=status_menu)
-        
-        # 如果環境受限，添加重置選項
-        if hasattr(self.task, 'campus_restricted') and self.task.campus_restricted:
-            context_menu.add_command(label="重置環境限制", command=self.reset_restriction)
-        
-        context_menu.add_separator()
-        context_menu.add_command(label="編輯任務", command=self.edit)
-        context_menu.add_command(label="刪除任務", command=self.delete)
-        
-        # 顯示選單
-        context_menu.tk_popup(event.x_root, event.y_root)
-        
-        # 阻止事件繼續傳播
-        return "break"
     
     def reset_status(self):
         """重置任務狀態"""
@@ -1002,20 +1041,20 @@ class ChronoHelper:
         self.tasks_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
     
     def _bind_mousewheel(self, event):
-        # 綁定滾輪事件
+        """綁定滾輪事件 - 修改為只綁定到Canvas的空白區域"""
         if os.name == 'nt':  # Windows
-            self.tasks_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+            self.tasks_canvas.bind("<MouseWheel>", self._on_mousewheel)
         else:  # Linux, macOS
-            self.tasks_canvas.bind_all("<Button-4>", lambda e: self.tasks_canvas.yview_scroll(-1, "units"))
-            self.tasks_canvas.bind_all("<Button-5>", lambda e: self.tasks_canvas.yview_scroll(1, "units"))
+            self.tasks_canvas.bind("<Button-4>", lambda e: self.tasks_canvas.yview_scroll(-1, "units"))
+            self.tasks_canvas.bind("<Button-5>", lambda e: self.tasks_canvas.yview_scroll(1, "units"))
     
     def _unbind_mousewheel(self, event):
-        # 解除滾輪事件綁定
+        """解除滾輪事件綁定 - 修改為只解綁Canvas的事件"""
         if os.name == 'nt':
-            self.tasks_canvas.unbind_all("<MouseWheel>")
+            self.tasks_canvas.unbind("<MouseWheel>")
         else:
-            self.tasks_canvas.unbind_all("<Button-4>")
-            self.tasks_canvas.unbind_all("<Button-5>")
+            self.tasks_canvas.unbind("<Button-4>")
+            self.tasks_canvas.unbind("<Button-5>")
     
     def on_frame_configure(self, event):
         # 更新捲動區域
@@ -1102,6 +1141,7 @@ class ChronoHelper:
             self.log(f"保存任務失敗: {str(e)}")
     
     def refresh_task_list(self):
+        """刷新任務列表顯示"""
         # 清空任務列表
         for widget in self.tasks_frame.winfo_children():
             widget.destroy()
@@ -1114,27 +1154,21 @@ class ChronoHelper:
             empty_label.pack(fill=tk.X)
             return
         
-        # 排序任務: 今天的在前，未來的次之，過期的最後
-        today = datetime.date.today().strftime("%Y-%m-%d")
-        today_tasks = [t for t in self.tasks if t.date == today]
-        future_tasks = [t for t in self.tasks if t.date > today]
-        past_tasks = [t for t in self.tasks if t.date < today]
+        # 排序任務：先按日期，再按簽到時間
+        sorted_tasks = sorted(self.tasks, key=lambda x: (x.date, x.sign_in_time))
         
-        # 進一步排序今天的任務
-        today_tasks.sort(key=lambda t: t.sign_in_time)
-        future_tasks.sort(key=lambda t: (t.date, t.sign_in_time))
-        past_tasks.sort(key=lambda t: (t.date, t.sign_in_time), reverse=True)
-        
-        sorted_tasks = today_tasks + future_tasks + past_tasks
-        
-        # 創建任務卡片
+        # 創建任務卡片，傳遞Canvas引用
         for task in sorted_tasks:
-            task_card = TaskCard(self.tasks_frame, task, 
-                               on_edit=self.edit_task,
-                               on_delete=self.delete_task,
-                               on_sign_in=self.perform_sign_in,
-                               on_sign_out=self.perform_sign_out,
-                               on_update_status=self.update_task_status)  # 使用新方法作為回調
+            task_card = TaskCard(
+                self.tasks_frame, 
+                task, 
+                on_edit=self.edit_task,
+                on_delete=self.delete_task,
+                on_sign_in=self.perform_sign_in,
+                on_sign_out=self.perform_sign_out,
+                on_update_status=self.update_task_status,
+                main_canvas=self.tasks_canvas  # 傳遞Canvas引用
+            )
             task_card.pack(fill=tk.X, pady=5, padx=5)
     
     def add_task(self):
