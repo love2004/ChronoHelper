@@ -20,7 +20,7 @@ class AuthService:
         """
         self.logger = logger
         self.session = requests.Session()
-        self.session.verify = False  # 禁用SSL證書驗證
+        self.session.verify = False  
         self.login_status = False
         self.last_login_time = None
     
@@ -109,8 +109,18 @@ class AuthService:
                         self.logger.log(f"警告: 找到狀態元素但無法提取姓名, 內容: {status_text}")
                         
                         # 檢查是否有錯誤信息
-                        if "密碼錯誤" in response.text or "帳號不存在" in response.text:
-                            self.logger.log("登入失敗: 帳號或密碼錯誤")
+                        # if "密碼有誤" in response.text or "帳號不存在" in response.text or "密碼錯誤" in response.text:
+                        #     self.logger.log("登入失敗: 帳號或密碼錯誤")
+                        #     return False
+                        
+                        # 檢查系統錯誤訊息
+                        if "<meta http-equiv='refresh' content='0; url=error.php?error=" in response.text:
+                            # 帳號錯誤或密碼錯誤的情況
+                            if "error=2" in response.text or "error=3" in response.text:
+                                self.logger.log("登入失敗: 帳號或密碼錯誤")
+                                return False
+                            # 其他系統錯誤
+                            self.logger.log(f"登入失敗: 系統錯誤，請稍後再試")
                             return False
                         
                         # 假設登入成功，但格式已變更
@@ -118,17 +128,20 @@ class AuthService:
                         self.last_login_time = datetime.datetime.now()
                         return True
                 else:
-                    # 檢查是否有錯誤信息
-                    if "密碼錯誤" in response.text or "帳號不存在" in response.text:
-                        self.logger.log("登入失敗: 帳號或密碼錯誤")
-                        return False
+                    # 檢查是否有錯誤信息 
+                    # if "密碼有誤" in response.text or "帳號不存在" in response.text or "密碼錯誤" in response.text:
+                    #     self.logger.log("登入失敗: 帳號或密碼錯誤")
+                    #     return False
                     
-                    # 如果沒有找到status元素，檢查其他可能的登入成功標記
-                    if "登出" in response.text and "changeEntrance.php" in response.text:
-                        self.logger.log("檢測到登入成功標記，但無法找到用戶姓名")
-                        self.login_status = True
-                        self.last_login_time = datetime.datetime.now()
-                        return True
+                    # 檢查系統錯誤訊息
+                    if "<meta http-equiv='refresh' content='0; url=error.php?error=" in response.text:
+                        # 帳號錯誤或密碼錯誤的情況
+                        if "error=2" in response.text or "error=3" in response.text:
+                            self.logger.log("登入失敗: 帳號或密碼錯誤")
+                            return False
+                        # 其他系統錯誤
+                        self.logger.log(f"登入失敗: 系統錯誤，請稍後再試")
+                        return False
                     
                     self.logger.log("無法確認登入狀態，請檢查網頁結構是否已變更")
                     return False
@@ -179,14 +192,37 @@ class AuthService:
                     
                     if response.status_code == 200:
                         # 檢查頁面內容確認登入狀態維持
-                        if "login_id" in response.text:  # 如果包含登入表單，說明session已失效
+                        # 檢查是否有登出連結和用戶歡迎訊息，這表示會話仍然有效
+                        if "登出</a>" in response.text and "<span class=\"status\">" in response.text and "您好" in response.text:
+                            self.last_login_time = datetime.datetime.now()
+                            self.logger.log("會話已成功刷新")
+                            return True
+                        # 檢查是否有登入表單，表示會話已失效
+                        elif "<form name=\"dyulogin\"" in response.text or "login_id" in response.text and "login_pwd" in response.text:
+                            self.logger.log("會話已過期，需要重新登入")
+                            self.login_status = False
+                            return False
+                        # 檢查是否有密碼錯誤信息，表示會話已失效
+                        elif "密碼不得為空" in response.text or "帳號不得為空" in response.text:
                             self.logger.log("會話已過期，需要重新登入")
                             self.login_status = False
                             return False
                         else:
-                            self.last_login_time = datetime.datetime.now()
-                            self.logger.log("會話已成功刷新")
-                            return True
+                            # 如果無法確定，嘗試檢查其他特徵
+                            if "ispass = \"\"" in response.text:  # 未登入狀態特徵
+                                self.logger.log("檢測到未登入狀態特徵，需要重新登入")
+                                self.login_status = False
+                                return False
+                            elif "ispass = \"t\"" in response.text:  # 已登入狀態特徵
+                                self.last_login_time = datetime.datetime.now()
+                                self.logger.log("檢測到已登入狀態特徵，會話已成功刷新")
+                                return True
+                            else:
+                                # 最後的保險措施，假設會話可能仍然有效
+                                self.last_login_time = datetime.datetime.now()
+                                self.logger.log("會話狀態不明確，假設有效並已刷新")
+                                return True
+
                     else:
                         self.logger.log(f"刷新會話失敗，狀態碼: {response.status_code}，將在下次檢查時重新登入")
                         self.login_status = False
@@ -269,3 +305,4 @@ class AuthService:
         # 初始認為Cookies有效，但會在首次操作時驗證
         self.login_status = True
         self.last_login_time = datetime.datetime.now()
+
