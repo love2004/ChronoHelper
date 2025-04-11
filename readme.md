@@ -4,7 +4,7 @@
 
 ChronoHelper 是一款專為大葉大學設計的自動化簽到/簽退工具，具有簡潔優雅的現代界面、智能任務管理和自動執行功能，幫助您輕鬆管理日常考勤需求。
 
-![ChronoHelper主界面](https://zhijings.com/wp-content/uploads/2025/04/chronohelper-v1.1.0.png)
+![ChronoHelper主界面](https://zhijings.com/wp-content/uploads/2025/04/chronohelper-v2.2.1.png)
 
 
 ## 📋 功能特色
