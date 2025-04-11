@@ -66,6 +66,16 @@ class ChronoHelper:
             "failures": 0
         }
         
+        # 預先初始化執行統計結構
+        self.execution_stats = {
+            "total_executions": 0,
+            "successful_sign_ins": 0,
+            "successful_sign_outs": 0,
+            "failed_sign_ins": 0,
+            "failed_sign_outs": 0,
+            "last_success_time": None
+        }
+        
         # 創建界面
         self.create_widgets()
         
@@ -91,11 +101,16 @@ class ChronoHelper:
         # 啟動調度器（在網絡檢測完成後）
         self.scheduler = SchedulerService(self)
         
+        # 將我們的統計數據賦值給調度器
+        if hasattr(self.scheduler, 'execution_stats'):
+            self.scheduler.execution_stats = self.execution_stats
+        
         # 啟動定期網絡檢測（增加隨機延遲，避免所有實例同時檢測）
         initial_delay = 10000 + random.randint(0, 5000)  # 10-15秒的初始延遲
         self.root.after(initial_delay, self.periodic_network_check)
         
         # 啟動狀態統計更新
+        self.update_system_stats()  # 立即更新一次
         self.root.after(5000, self.update_system_stats)
         
         # 註冊關閉窗口事件處理器
@@ -438,7 +453,7 @@ class ChronoHelper:
     
     def update_task_status(self, task):
         """更新任務狀態"""
-        # 獲取任務變更前的狀態
+        # 獲取任務變更前的狀態，如果不存在則設為False
         old_sign_in_done = getattr(task, '_prev_sign_in_done', False)
         old_sign_out_done = getattr(task, '_prev_sign_out_done', False)
         
@@ -463,6 +478,18 @@ class ChronoHelper:
         # 更新統計信息
         if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
             stats = self.scheduler.execution_stats
+            
+            # 確保統計數據結構完整
+            if stats is None:
+                stats = {
+                    "total_executions": 0,
+                    "successful_sign_ins": 0,
+                    "successful_sign_outs": 0,
+                    "failed_sign_ins": 0,
+                    "failed_sign_outs": 0,
+                    "last_success_time": None
+                }
+                self.scheduler.execution_stats = stats
             
             # 檢查簽到狀態變化
             if task.sign_in_done and not old_sign_in_done:
@@ -1089,23 +1116,36 @@ class ChronoHelper:
             # 沒有任務
             self.task_stats_var.set("總共 0 | 今日 0 | 已完成 0")
         
-        # 更新簽到簽退統計
-        if hasattr(self.scheduler, 'execution_stats'):
-            stats = self.scheduler.execution_stats
-            sign_in_success = stats.get("successful_sign_ins", 0)
-            sign_out_success = stats.get("successful_sign_outs", 0)
-            failed = stats.get("failed_sign_ins", 0) + stats.get("failed_sign_outs", 0)
-            
-            # 更新格式，使顯示更清晰
-            self.sign_stats_var.set(f"簽到 {sign_in_success} | 簽退 {sign_out_success} | 失敗 {failed}")
-            
-            # 更新最後成功時間
-            last_success = stats.get("last_success_time")
-            if last_success:
-                last_time_str = last_success.strftime("%H:%M:%S")
-                self.last_update_var.set(last_time_str)
-            else:
-                self.last_update_var.set("從未")
+        # 確保調度器的執行統計數據可用
+        stats = getattr(self.scheduler, 'execution_stats', {})
+        if not stats:
+            stats = {
+                "total_executions": 0,
+                "successful_sign_ins": 0,
+                "successful_sign_outs": 0,
+                "failed_sign_ins": 0,
+                "failed_sign_outs": 0,
+                "last_success_time": None
+            }
+            # 如果調度器沒有統計數據，賦值一個
+            if hasattr(self.scheduler, 'execution_stats'):
+                self.scheduler.execution_stats = stats
+        
+        # 獲取統計數據
+        sign_in_success = stats.get("successful_sign_ins", 0)
+        sign_out_success = stats.get("successful_sign_outs", 0)
+        failed = stats.get("failed_sign_ins", 0) + stats.get("failed_sign_outs", 0)
+        
+        # 更新顯示格式
+        self.sign_stats_var.set(f"簽到 {sign_in_success} | 簽退 {sign_out_success} | 失敗 {failed}")
+        
+        # 更新最後成功時間
+        last_success = stats.get("last_success_time")
+        if last_success:
+            last_time_str = last_success.strftime("%H:%M:%S")
+            self.last_update_var.set(last_time_str)
+        else:
+            self.last_update_var.set("從未")
         
         # 定期更新狀態統計
         self.root.after(5000, self.update_system_stats)
@@ -1115,6 +1155,10 @@ class ChronoHelper:
         if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
             # 詢問用戶是否確定重置
             if messagebox.askyesno("確認操作", "確定要重置所有統計數據嗎？", parent=self.root):
+                # 保存最後操作時間和總執行次數
+                last_time = datetime.datetime.now()
+                old_stats = self.scheduler.execution_stats or {}
+                
                 # 重置統計數據
                 self.scheduler.execution_stats = {
                     "total_executions": 0,
@@ -1122,7 +1166,7 @@ class ChronoHelper:
                     "successful_sign_outs": 0,
                     "failed_sign_ins": 0,
                     "failed_sign_outs": 0,
-                    "last_success_time": None
+                    "last_success_time": last_time  # 使用當前時間作為最後更新時間
                 }
                 
                 # 立即更新統計面板

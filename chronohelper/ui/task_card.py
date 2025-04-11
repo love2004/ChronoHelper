@@ -489,32 +489,32 @@ class TaskCard(tk.Frame):
             if self.task.date < today:
                 # 過期任務狀態顯示處理
                 if self.task.sign_in_done and self.task.sign_out_done:
-                    return "已完成", "#2ecc71"  # 綠色
+                    return "已完成", COLORS["progress_done"]  # 綠色
                 elif not self.task.sign_in_done and not self.task.sign_out_done:
-                    return "已過期", "#e74c3c"  # 紅色
+                    return "已過期", COLORS["warning"]  # 紅色
                 else:
-                    return "部分完成", "#f39c12"  # 橙色
+                    return "部分完成", COLORS["progress_pending"]  # 橙色
             else:
                 # 未來任務
-                return "未開始", "#3498db"  # 藍色
+                return "未開始", COLORS["progress_waiting"]  # 藍色
         
         # 今天的任務
         if self.task.sign_in_done and self.task.sign_out_done:
-            return "已完成", "#2ecc71"  # 綠色
+            return "已完成", COLORS["progress_done"]  # 綠色
         
         if not self.task.sign_in_done:
             if current_time < self.task.sign_in_time:
-                return "待簽到", "#3498db"  # 藍色
+                return "待簽到", COLORS["progress_waiting"]  # 藍色
             else:
                 # 已過簽到時間但未簽到
-                return "待簽到(已遲到)", "#e74c3c"  # 紅色
+                return "待簽到(已遲到)", COLORS["warning"]  # 紅色
         
         # 已簽到但未簽退
         if current_time < self.task.sign_out_time:
-            return "進行中", "#f39c12"  # 橙色
+            return "進行中", COLORS["progress_pending"]  # 橙色
         else:
             # 已過簽退時間但未簽退
-            return "待簽退(已遲到)", "#e74c3c"  # 紅色
+            return "待簽退(已遲到)", COLORS["warning"]  # 紅色
     
     def edit(self):
         """編輯任務"""
