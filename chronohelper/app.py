@@ -63,11 +63,16 @@ class ChronoHelper:
         
         self.load_cookies()
         
+        # 先進行網絡環境初始檢測
+        self.logger.log("進行初始網絡環境檢測...")
+        is_campus, ip, hop_info = self.network_utils.check_campus_network(verbose=True)
+        self.update_network_status(is_campus, ip, hop_info, force_update=True)
+        
         # 啟動調度器
         self.scheduler = SchedulerService(self)
         
-        # 啟動初始網絡檢測
-        self.root.after(1000, self.initial_network_check)
+        # 啟動定期網絡檢測
+        self.root.after(5000, self.periodic_network_check)
         
         # 註冊關閉窗口事件處理器
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -488,17 +493,6 @@ class ChronoHelper:
         """顯示桌面通知"""
         NotificationWindow(title, message)
         self.logger.log(f"通知: {title} - {message}")
-    
-    def initial_network_check(self):
-        """初始網絡環境檢測"""
-        self.logger.log("正在進行初始網絡環境檢測...")
-        is_campus, ip, hop_info = self.network_utils.check_campus_network(verbose=True)
-        
-        # 直接在主線程中更新UI，確保界面立即更新
-        self.update_network_status(is_campus, ip, hop_info, force_update=True)
-        
-        # 啟動定期檢測
-        self.root.after(5000, self.periodic_network_check)  # 5秒後開始第一次定期檢測
     
     def periodic_network_check(self):
         """定期檢測網絡環境"""

@@ -57,8 +57,8 @@ class SchedulerService:
     
     def scheduler_loop(self):
         """調度器主循環，智能調整檢查頻率"""
-        # 首次啟動立即檢查一次
-        self.check_tasks(is_initial_check=True)
+        # 首次啟動立即檢查一次，但不重複進行網絡檢測
+        self.check_tasks(is_initial_check=True, skip_network_check=True)
         
         while self.running:
             try:
@@ -184,18 +184,24 @@ class SchedulerService:
         # 距離下個任務超過30分鐘，最多休眠5分鐘
         return min(300, seconds_to_next / 4)
     
-    def check_tasks(self, is_initial_check=False):
+    def check_tasks(self, is_initial_check=False, skip_network_check=False):
         """檢查並執行到期的任務
         
         Args:
             is_initial_check: 是否是系統啟動後的首次檢查
+            skip_network_check: 是否跳過網絡環境檢測（使用應用程式當前狀態）
         """
         try:
             # 記錄開始時間，用於性能監控
             check_start_time = datetime.datetime.now()
             
             # 檢查網絡環境（根據間隔控制檢查頻率）
-            current_is_campus = self._check_network_environment()
+            if skip_network_check:
+                # 使用應用程式已設置的網絡環境狀態
+                current_is_campus = getattr(self.app, 'is_campus_network', False)
+            else:
+                # 正常執行網絡環境檢測
+                current_is_campus = self._check_network_environment()
             
             # 首先確保會話有效
             session_valid = self._ensure_valid_session()

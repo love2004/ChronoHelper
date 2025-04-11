@@ -277,7 +277,7 @@ def main() -> int:
         logger.info("開始打包 ChronoHelper 為獨立執行檔...")
         
         # 檢測版本號參數
-        version = "1.1.0"  # 默認版本
+        version = "1.2.0"  # 默認版本
         if len(sys.argv) > 1 and sys.argv[1].startswith("v"):
             version = sys.argv[1].lstrip("v")
             logger.info(f"使用指定版本號: {version}")
