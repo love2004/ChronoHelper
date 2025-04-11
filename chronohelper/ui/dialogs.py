@@ -22,7 +22,7 @@ class SettingsDialog:
         
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("ChronoHelper - 設定")
-        self.dialog.geometry("500x580")  # 增加初始高度以顯示所有內容
+        self.dialog.geometry("500x580") 
         self.dialog.configure(bg=COLORS["card"])
         self.dialog.transient(parent)
         self.dialog.grab_set()

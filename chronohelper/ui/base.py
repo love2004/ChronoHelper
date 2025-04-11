@@ -30,8 +30,8 @@ class ModernButton(tk.Button):
                          activeforeground=activeforeground, bd=bd, relief=relief,
                          padx=padx, pady=pady, **kwargs)
         
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
+        self.bind("<Enter>", self._on_enter)  # 當滑鼠進入按鈕區域時觸發
+        self.bind("<Leave>", self._on_leave)  # 當滑鼠離開按鈕區域時觸發
     
     def _on_enter(self, e):
         if not self.keep_color:
