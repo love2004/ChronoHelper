@@ -265,11 +265,11 @@ class NetworkUtils:
                                 if verbose:
                                     self.logger.log(f"網絡檢測結果: 通過第二躍點識別為校內網絡 ✓")
                                 
-                                # 如果之前不是校內網絡，但現在是，發送通知
-                                if not prev_is_campus and new_is_campus:
+                                # 移除直接輸出狀態變更日誌的代碼，讓app的update_network_status方法統一處理
+                                # 只記錄檢測結果，不顯示狀態變更訊息
+                                if not prev_is_campus and new_is_campus and verbose:
                                     hop_ip = second_hop_info.get('ip', '未知')
-                                    self.logger.log(f"網絡環境已變更: 校外 -> 校內")
-                                    self.logger.log(f"通過第二躍點識別為校內網絡 (第二躍點IP: {hop_ip})")
+                                    self.logger.log(f"通過第二躍點檢測 ({hop_ip}) 識別為校內網絡")
                             else:
                                 # 維持本機檢測結果，在第二躍點檢測失敗時不要覆蓋
                                 if verbose:

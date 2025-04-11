@@ -8,6 +8,8 @@ from tkinter import scrolledtext, ttk, messagebox
 import datetime
 import os
 import sys
+import time
+import random
 
 from chronohelper.config.colors import COLORS
 from chronohelper.config.settings import APP_SETTINGS
@@ -52,6 +54,17 @@ class ChronoHelper:
         self.current_ip = "未知"
         self.last_network_log_time = None
         self.last_network_log_status = None
+        self.system_stats = {
+            "total_tasks": 0,
+            "active_tasks": 0,
+            "completed_tasks": 0,
+            "pending_tasks": 0,
+            "last_update": "從未",
+            "scheduler_status": "停止",
+            "sign_in_success": 0,
+            "sign_out_success": 0,
+            "failures": 0
+        }
         
         # 創建界面
         self.create_widgets()
@@ -72,11 +85,18 @@ class ChronoHelper:
         # 確保將結果設為應用程式的狀態
         self.is_campus_network = is_campus
         
+        # 記錄初始檢測時間
+        self.last_periodic_check_time = time.time()
+        
         # 啟動調度器（在網絡檢測完成後）
         self.scheduler = SchedulerService(self)
         
-        # 啟動定期網絡檢測
-        self.root.after(10000, self.periodic_network_check)  # 10秒後開始第一次定期檢測
+        # 啟動定期網絡檢測（增加隨機延遲，避免所有實例同時檢測）
+        initial_delay = 10000 + random.randint(0, 5000)  # 10-15秒的初始延遲
+        self.root.after(initial_delay, self.periodic_network_check)
+        
+        # 啟動狀態統計更新
+        self.root.after(5000, self.update_system_stats)
         
         # 註冊關閉窗口事件處理器
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -145,6 +165,90 @@ class ChronoHelper:
         right_frame = tk.Frame(content_frame, bg=COLORS["background"], width=300)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(20, 0))
         right_frame.pack_propagate(False)  # 防止框架縮小
+        
+        # 系統狀態卡片
+        status_label = tk.Label(right_frame, text="系統狀態", font=("Arial", 14, "bold"), 
+                             bg=COLORS["background"], fg=COLORS["text"])
+        status_label.pack(anchor=tk.W, pady=(0, 10))
+        
+        # 系統狀態卡片框架
+        self.status_card = tk.Frame(right_frame, bg=COLORS["card"], bd=1, relief=tk.SOLID, padx=10, pady=10)
+        self.status_card.pack(fill=tk.X, pady=(0, 15))
+        
+        # 標題和刷新按鈕
+        status_header = tk.Frame(self.status_card, bg=COLORS["card"])
+        status_header.pack(fill=tk.X, pady=(0, 5))
+        
+        tk.Label(status_header, text="系統運行狀態", font=("Arial", 10, "bold"),
+               bg=COLORS["card"], fg=COLORS["text"]).pack(side=tk.LEFT)
+        
+        # 按鈕框架
+        button_frame = tk.Frame(status_header, bg=COLORS["card"])
+        button_frame.pack(side=tk.RIGHT)
+        
+        # 添加重置按鈕
+        reset_button = tk.Button(button_frame, text="重置", bg=COLORS["card"],
+                               fg=COLORS["warning"], relief=tk.FLAT, bd=0, padx=5,
+                               command=self.reset_statistics,
+                               activebackground=COLORS["card_hover"],
+                               activeforeground=COLORS["warning_dark"])
+        reset_button.pack(side=tk.RIGHT, padx=(0, 5))
+        
+        # 添加刷新按鈕
+        refresh_button = tk.Button(button_frame, text="⟳", bg=COLORS["card"],
+                                  fg=COLORS["primary"], relief=tk.FLAT, bd=0, padx=5,
+                                  command=self.update_system_stats,
+                                  activebackground=COLORS["card_hover"],
+                                  activeforeground=COLORS["primary_dark"])
+        refresh_button.pack(side=tk.RIGHT)
+        
+        # 調度器狀態
+        self.scheduler_status_frame = tk.Frame(self.status_card, bg=COLORS["card"])
+        self.scheduler_status_frame.pack(fill=tk.X, pady=3)
+        
+        tk.Label(self.scheduler_status_frame, text="調度器:", bg=COLORS["card"], 
+               fg=COLORS["text"], font=("Arial", 9, "bold")).pack(side=tk.LEFT)
+        
+        self.scheduler_status_var = tk.StringVar(value="初始化中")
+        self.scheduler_indicator = tk.Label(self.scheduler_status_frame, textvariable=self.scheduler_status_var,
+                                        bg=COLORS["card"], fg="#e74c3c", font=("Arial", 9))
+        self.scheduler_indicator.pack(side=tk.RIGHT)
+        
+        # 任務統計
+        self.task_stats_frame = tk.Frame(self.status_card, bg=COLORS["card"])
+        self.task_stats_frame.pack(fill=tk.X, pady=3)
+        
+        tk.Label(self.task_stats_frame, text="任務統計:", bg=COLORS["card"], 
+               fg=COLORS["text"], font=("Arial", 9, "bold")).pack(side=tk.LEFT)
+        
+        self.task_stats_var = tk.StringVar(value="總共 0 | 待執行 0 | 已完成 0")
+        self.task_stats_label = tk.Label(self.task_stats_frame, textvariable=self.task_stats_var,
+                                      bg=COLORS["card"], fg=COLORS["text"], font=("Arial", 9))
+        self.task_stats_label.pack(side=tk.RIGHT)
+        
+        # 簽到簽退統計
+        self.sign_stats_frame = tk.Frame(self.status_card, bg=COLORS["card"])
+        self.sign_stats_frame.pack(fill=tk.X, pady=3)
+        
+        tk.Label(self.sign_stats_frame, text="簽到/簽退:", bg=COLORS["card"], 
+               fg=COLORS["text"], font=("Arial", 9, "bold")).pack(side=tk.LEFT)
+        
+        self.sign_stats_var = tk.StringVar(value="成功 0 / 0 | 失敗 0")
+        self.sign_stats_label = tk.Label(self.sign_stats_frame, textvariable=self.sign_stats_var,
+                                      bg=COLORS["card"], fg=COLORS["text"], font=("Arial", 9))
+        self.sign_stats_label.pack(side=tk.RIGHT)
+        
+        # 最後更新時間
+        self.last_update_frame = tk.Frame(self.status_card, bg=COLORS["card"])
+        self.last_update_frame.pack(fill=tk.X, pady=3)
+        
+        tk.Label(self.last_update_frame, text="最後更新:", bg=COLORS["card"], 
+               fg=COLORS["text"], font=("Arial", 9, "bold")).pack(side=tk.LEFT)
+        
+        self.last_update_var = tk.StringVar(value="從未")
+        self.last_update_label = tk.Label(self.last_update_frame, textvariable=self.last_update_var,
+                                       bg=COLORS["card"], fg=COLORS["text"], font=("Arial", 9))
+        self.last_update_label.pack(side=tk.RIGHT)
         
         # 日誌區域
         log_label = tk.Label(right_frame, text="執行日誌", font=("Arial", 14, "bold"), 
@@ -232,6 +336,12 @@ class ChronoHelper:
     def load_tasks(self):
         """載入任務列表"""
         self.tasks = self.file_handler.load_tasks()
+        
+        # 初始化任務的前一狀態，用於追蹤狀態變更
+        for task in self.tasks:
+            task._prev_sign_in_done = getattr(task, 'sign_in_done', False)
+            task._prev_sign_out_done = getattr(task, 'sign_out_done', False)
+            
         self.logger.log(f"已載入 {len(self.tasks)} 個任務")
     
     def save_tasks(self):
@@ -284,6 +394,11 @@ class ChronoHelper:
         if dialog.result:
             name, date, sign_in, sign_out, notify = dialog.result
             new_task = Task(name, date, sign_in, sign_out, notify)
+            
+            # 初始化任務的前一狀態
+            new_task._prev_sign_in_done = False
+            new_task._prev_sign_out_done = False
+            
             self.tasks.append(new_task)
             self.save_tasks()
             self.logger.log(f"新增任務: {name}, 日期: {date}, 時間: {sign_in}-{sign_out}")
@@ -323,6 +438,10 @@ class ChronoHelper:
     
     def update_task_status(self, task):
         """更新任務狀態"""
+        # 獲取任務變更前的狀態
+        old_sign_in_done = getattr(task, '_prev_sign_in_done', False)
+        old_sign_out_done = getattr(task, '_prev_sign_out_done', False)
+        
         # 保存更新後的任務
         self.save_tasks()
         
@@ -340,6 +459,35 @@ class ChronoHelper:
             status_str += "（環境受限已清除）"
         
         self.logger.log(f"已手動更新任務 '{task.name}' 狀態: {status_str}")
+        
+        # 更新統計信息
+        if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
+            stats = self.scheduler.execution_stats
+            
+            # 檢查簽到狀態變化
+            if task.sign_in_done and not old_sign_in_done:
+                stats["successful_sign_ins"] = stats.get("successful_sign_ins", 0) + 1
+                stats["last_success_time"] = datetime.datetime.now()
+            elif not task.sign_in_done and old_sign_in_done:
+                stats["successful_sign_ins"] = max(0, stats.get("successful_sign_ins", 0) - 1)
+            
+            # 檢查簽退狀態變化
+            if task.sign_out_done and not old_sign_out_done:
+                stats["successful_sign_outs"] = stats.get("successful_sign_outs", 0) + 1
+                stats["last_success_time"] = datetime.datetime.now()
+            elif not task.sign_out_done and old_sign_out_done:
+                stats["successful_sign_outs"] = max(0, stats.get("successful_sign_outs", 0) - 1)
+            
+            # 更新總執行次數
+            if (task.sign_in_done != old_sign_in_done) or (task.sign_out_done != old_sign_out_done):
+                stats["total_executions"] = stats.get("total_executions", 0) + 1
+            
+            # 立即更新系統狀態面板
+            self.update_system_stats()
+        
+        # 保存任務當前狀態作為下次比較的基準
+        task._prev_sign_in_done = task.sign_in_done
+        task._prev_sign_out_done = task.sign_out_done
     
     def load_cookies(self):
         """載入保存的Cookies"""
@@ -411,6 +559,16 @@ class ChronoHelper:
             task.sign_in_done = True
             self.save_tasks()
             
+            # 更新統計信息
+            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
+                stats = self.scheduler.execution_stats
+                stats["successful_sign_ins"] = stats.get("successful_sign_ins", 0) + 1
+                stats["total_executions"] = stats.get("total_executions", 0) + 1
+                stats["last_success_time"] = datetime.datetime.now()
+                
+                # 立即更新系統狀態面板
+                self.update_system_stats()
+            
             # 顯示通知
             if self.settings.get("global_notify", True) and task.notify:
                 self.show_notification(f"{task.name} 簽到成功", 
@@ -419,6 +577,15 @@ class ChronoHelper:
             self.status_var.set(f"已完成 '{task.name}' 的簽到")
             return True
         else:
+            # 更新統計信息
+            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
+                stats = self.scheduler.execution_stats
+                stats["failed_sign_ins"] = stats.get("failed_sign_ins", 0) + 1
+                stats["total_executions"] = stats.get("total_executions", 0) + 1
+                
+                # 立即更新系統狀態面板
+                self.update_system_stats()
+                
             # 如果任務有環境限制標記，更新UI
             if hasattr(task, 'campus_restricted') and task.campus_restricted:
                 self.save_tasks()
@@ -446,6 +613,16 @@ class ChronoHelper:
             task.sign_out_done = True
             self.save_tasks()
             
+            # 更新統計信息
+            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
+                stats = self.scheduler.execution_stats
+                stats["successful_sign_outs"] = stats.get("successful_sign_outs", 0) + 1
+                stats["total_executions"] = stats.get("total_executions", 0) + 1
+                stats["last_success_time"] = datetime.datetime.now()
+                
+                # 立即更新系統狀態面板
+                self.update_system_stats()
+            
             # 顯示通知
             if self.settings.get("global_notify", True) and task.notify:
                 self.show_notification(f"{task.name} 簽退成功", 
@@ -457,6 +634,15 @@ class ChronoHelper:
             self.status_var.set(f"已完成 '{task.name}' 的簽退")
             return True
         else:
+            # 更新統計信息
+            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
+                stats = self.scheduler.execution_stats
+                stats["failed_sign_outs"] = stats.get("failed_sign_outs", 0) + 1
+                stats["total_executions"] = stats.get("total_executions", 0) + 1
+                
+                # 立即更新系統狀態面板
+                self.update_system_stats()
+                
             # 如果任務有環境限制標記，更新UI
             if hasattr(task, 'campus_restricted') and task.campus_restricted:
                 self.save_tasks()
@@ -502,6 +688,21 @@ class ChronoHelper:
         """定期檢測網絡環境"""
         if not self.scheduler.running:
             return  # 如果調度器已停止，不再檢測
+        
+        # 檢查上次檢測時間，避免頻繁檢測
+        now = time.time()
+        last_check = getattr(self, 'last_periodic_check_time', 0)
+        min_interval = self.settings.get("network_check_interval", 30)  # 最小間隔（秒）
+        
+        # 如果距離上次檢測時間不夠長，延遲檢測
+        if now - last_check < min_interval:
+            # 繼續排程定期檢測，但避免頻繁執行
+            self.root.after(max(1000, int((min_interval - (now - last_check)) * 1000)), 
+                           self.periodic_network_check)
+            return
+            
+        # 更新最後檢測時間
+        self.last_periodic_check_time = now
             
         # 執行網絡檢測，但避免重複記錄
         is_campus, ip, hop_info = self.network_utils.check_campus_network(verbose=False)
@@ -509,8 +710,9 @@ class ChronoHelper:
         # 強制更新UI，確保界面狀態和後端檢測結果同步
         self.root.after(0, lambda: self.update_network_status(is_campus, ip, hop_info, force_update=True))
         
-        # 繼續定期檢測
-        self.root.after(30000, self.periodic_network_check)  # 每30秒檢測一次，比之前更頻繁
+        # 繼續定期檢測（使用動態間隔，根據設定決定頻率）
+        check_interval = max(10000, self.settings.get("network_check_interval", 30) * 1000)
+        self.root.after(check_interval, self.periodic_network_check)
     
     def update_network_status(self, is_campus, ip, hop_info=None, force_update=False):
         """更新網絡狀態顯示
@@ -572,10 +774,10 @@ class ChronoHelper:
                     self.network_status_var.set(f"校內網絡(通過躍點) ✓ ({hop_ip})")
                 else:
                     self.network_status_var.set(f"校內網絡 ✓ ({ip})")
-                self.network_status_label.config(fg="#2ecc71")  # 綠色
+                self.network_status_label.config(fg=COLORS["progress_done"])  # 綠色
             else:
                 self.network_status_var.set(f"校外網絡 ⚠️ ({ip})")
-                self.network_status_label.config(fg="#e74c3c")  # 紅色
+                self.network_status_label.config(fg=COLORS["warning"])  # 紅色
             
             # 記錄網絡狀態以供任務檢查使用
             self.is_campus_network = is_campus
@@ -585,6 +787,9 @@ class ChronoHelper:
             self.last_network_log_time = datetime.datetime.now()
             self.last_network_log_status = is_campus
             
+            # 添加網絡質量指示器
+            self._update_network_quality_indicator(hop_info)
+            
             # 強制更新UI
             self.root.update_idletasks()
             
@@ -592,6 +797,59 @@ class ChronoHelper:
             if status_changed:
                 self.refresh_task_list()
     
+    def _update_network_quality_indicator(self, hop_info):
+        """更新網絡質量指示器"""
+        # 如果狀態欄中不存在網絡質量指示器，則創建一個
+        if not hasattr(self, 'network_quality_indicator'):
+            # 查找狀態欄
+            for widget in self.root.winfo_children():
+                if isinstance(widget, tk.Frame) and widget.winfo_y() > self.root.winfo_height() - 50:
+                    # 創建網絡質量指示器框架
+                    quality_frame = tk.Frame(widget, bg=COLORS["primary_dark"])
+                    quality_frame.pack(side=tk.RIGHT, padx=(0, 5))
+                    
+                    # 創建指示器
+                    self.network_quality_indicator = tk.Canvas(quality_frame, width=12, height=12, 
+                                                         bg=COLORS["primary_dark"], highlightthickness=0)
+                    self.network_quality_indicator.pack(side=tk.RIGHT)
+                    
+                    # 初始化指示器圓形
+                    self.network_quality_circle = self.network_quality_indicator.create_oval(
+                        2, 2, 10, 10, fill="#e74c3c", outline="")
+                    break
+        
+        # 根據躍點信息更新網絡質量指示器顏色
+        if hasattr(self, 'network_quality_indicator'):
+            if not self.is_campus_network:
+                # 校外網絡:紅色
+                quality_color = "#e74c3c"
+            elif hop_info and "latency" in hop_info:
+                # 根據延遲設置顏色
+                latency = hop_info["latency"]
+                if latency < 50:
+                    quality_color = "#2ecc71"  # 綠色:良好
+                elif latency < 100:
+                    quality_color = "#f39c12"  # 橙色:一般
+                else:
+                    quality_color = "#e74c3c"  # 紅色:較差
+            else:
+                # 默認為綠色
+                quality_color = "#2ecc71"
+            
+            # 更新指示器顏色
+            self.network_quality_indicator.itemconfig(self.network_quality_circle, fill=quality_color)
+            
+            # 添加提示文字
+            quality_text = "校外網絡"
+            if self.is_campus_network:
+                if hop_info and "latency" in hop_info:
+                    quality_text = f"網絡延遲: {hop_info['latency']}ms"
+                else:
+                    quality_text = "校內網絡"
+            
+            # 使用工具提示顯示網絡質量信息
+            ToolTip(self.network_quality_indicator, quality_text)
+
     def refresh_network_status(self):
         """手動刷新網絡狀態"""
         self.network_status_var.set("檢測網絡中...")
@@ -797,4 +1055,119 @@ class ChronoHelper:
         finally:
             # 銷毀窗口並退出
             self.root.destroy()
+
+    def update_system_stats(self):
+        """更新系統狀態統計信息"""
+        if not hasattr(self, 'scheduler') or not self.root:
+            return
+
+        # 獲取調度器狀態
+        scheduler_status = "運行中" if self.scheduler.running else "停止"
+        self.scheduler_status_var.set(scheduler_status)
+        
+        # 更新調度器狀態指示器顏色
+        if scheduler_status == "運行中":
+            self.scheduler_indicator.config(fg=COLORS["progress_done"])  # 綠色
+        else:
+            self.scheduler_indicator.config(fg=COLORS["warning"])  # 紅色
+        
+        # 對任務進行統計
+        total_tasks = len(self.tasks)
+        
+        if total_tasks > 0:
+            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            today_tasks = [t for t in self.tasks if t.date == today]
+            active_tasks = len(today_tasks)
+            
+            # 計算今日已完成和待執行任務
+            completed_tasks = len([t for t in today_tasks if getattr(t, 'sign_in_done', False) and getattr(t, 'sign_out_done', False)])
+            pending_tasks = active_tasks - completed_tasks
+            
+            # 更新任務統計信息
+            self.task_stats_var.set(f"總共 {total_tasks} | 今日 {active_tasks} | 已完成 {completed_tasks}")
+        else:
+            # 沒有任務
+            self.task_stats_var.set("總共 0 | 今日 0 | 已完成 0")
+        
+        # 更新簽到簽退統計
+        if hasattr(self.scheduler, 'execution_stats'):
+            stats = self.scheduler.execution_stats
+            sign_in_success = stats.get("successful_sign_ins", 0)
+            sign_out_success = stats.get("successful_sign_outs", 0)
+            failed = stats.get("failed_sign_ins", 0) + stats.get("failed_sign_outs", 0)
+            
+            # 更新格式，使顯示更清晰
+            self.sign_stats_var.set(f"簽到 {sign_in_success} | 簽退 {sign_out_success} | 失敗 {failed}")
+            
+            # 更新最後成功時間
+            last_success = stats.get("last_success_time")
+            if last_success:
+                last_time_str = last_success.strftime("%H:%M:%S")
+                self.last_update_var.set(last_time_str)
+            else:
+                self.last_update_var.set("從未")
+        
+        # 定期更新狀態統計
+        self.root.after(5000, self.update_system_stats)
+
+    def reset_statistics(self):
+        """重置統計數據"""
+        if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
+            # 詢問用戶是否確定重置
+            if messagebox.askyesno("確認操作", "確定要重置所有統計數據嗎？", parent=self.root):
+                # 重置統計數據
+                self.scheduler.execution_stats = {
+                    "total_executions": 0,
+                    "successful_sign_ins": 0,
+                    "successful_sign_outs": 0,
+                    "failed_sign_ins": 0,
+                    "failed_sign_outs": 0,
+                    "last_success_time": None
+                }
+                
+                # 立即更新統計面板
+                self.update_system_stats()
+                
+                # 記錄操作
+                self.logger.log("已重置所有統計數據")
+                
+                # 顯示通知
+                self.status_var.set("統計數據已重置")
+        else:
+            messagebox.showwarning("操作失敗", "無法重置統計數據，請確保系統正常運行", parent=self.root)
+
+class ToolTip:
+    """工具提示類，顯示懸停提示"""
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tip_window = None
+        self.widget.bind("<Enter>", self.show_tip)
+        self.widget.bind("<Leave>", self.hide_tip)
+    
+    def show_tip(self, event=None):
+        """顯示提示窗口"""
+        if self.tip_window or not self.text:
+            return
+        
+        x, y, _, _ = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 25
+        
+        # 創建工具提示窗口
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+                      background="#ffffe0", relief=tk.SOLID, borderwidth=1,
+                      font=("Arial", "9", "normal"))
+        label.pack(padx=3, pady=3)
+    
+    def hide_tip(self, event=None):
+        """隱藏提示窗口"""
+        tw = self.tip_window
+        self.tip_window = None
+        if tw:
+            tw.destroy()
 

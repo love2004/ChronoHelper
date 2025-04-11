@@ -320,7 +320,7 @@ class SchedulerService:
                 # 更新日誌記錄時間和狀態
                 self.app.last_network_log_time = now
                 self.app.last_network_log_status = current_is_campus
-            
+                
             # 更新狀態欄
             if current_is_campus:
                 self.app.status_var.set("校內網絡環境，任務執行中")
