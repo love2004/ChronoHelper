@@ -20,5 +20,6 @@ APP_SETTINGS = {
     "session_refresh_interval": 240, # 會話刷新間隔（秒），默認4分鐘
     "session_valid_time": 270,  # 會話有效時間（秒），默認4.5分鐘
     "enable_second_hop": False,  # 啟用第二躍點檢測（默認關閉）
-    "hop_check_timeout": 10      # 第二躍點檢測超時（秒）
+    "hop_check_timeout": 10,      # 第二躍點檢測超時（秒）
+    "notification_duration": 5 # 通知顯示時間（秒）
 }

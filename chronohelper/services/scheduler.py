@@ -24,7 +24,8 @@ class SchedulerService:
         self.running = True
         self.thread = None
         self.last_check_time = None
-        self.network_check_interval = 300  # 網絡環境檢查間隔（秒）
+        # 從應用設定中讀取網絡檢測間隔
+        self.network_check_interval = self.app.settings.get("network_check_interval", 300)
         self.last_network_check = None
         self.execution_stats = {
             "total_executions": 0,
@@ -287,6 +288,9 @@ class SchedulerService:
             bool: 是否在校內網絡環境
         """
         now = datetime.datetime.now()
+        
+        # 確保使用最新的網絡檢測間隔設定
+        self.network_check_interval = self.app.settings.get("network_check_interval", 300)
         
         # 如果上次檢查時間在有效期內，直接返回之前的結果
         if self.last_network_check and (now - self.last_network_check).total_seconds() < self.network_check_interval:

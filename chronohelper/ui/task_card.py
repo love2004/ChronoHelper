@@ -10,6 +10,7 @@ import datetime
 
 from chronohelper.config.colors import COLORS
 from chronohelper.ui.base import ModernButton
+from chronohelper.ui.helpers import SettingTooltip, add_tooltip
 
 class TaskCard(tk.Frame):
     """任務卡片元件，顯示單個任務信息"""
@@ -176,6 +177,10 @@ class TaskCard(tk.Frame):
                                 bg=status_color, fg="white", padx=8, pady=2)
         self.status_label.pack(side=tk.RIGHT)
         
+        # 為狀態標籤添加工具提示
+        status_tooltip_text = self.get_status_tooltip_text()
+        self.status_tooltip = SettingTooltip(self.status_label, status_tooltip_text)
+        
         # 日期和時間信息
         info_frame = tk.Frame(self, bg=COLORS["card"])
         info_frame.pack(fill=tk.X, pady=5)
@@ -256,13 +261,21 @@ class TaskCard(tk.Frame):
         button_frame = tk.Frame(self, bg=COLORS["card"])
         button_frame.pack(fill=tk.X, pady=(10, 0))
         
+        # 簽到按鈕
         sign_in_button = ModernButton(button_frame, text="簽到", command=self.sign_in,
-                                   bg=COLORS["secondary"], activebackground="#27ae60")
-        sign_in_button.pack(side=tk.LEFT, padx=(0, 5))
+                                   bg=COLORS["primary"], width=8, padx=5, pady=3, height=1)
+        sign_in_button.pack(side=tk.LEFT, padx=(0, 10))
         
+        # 為簽到按鈕添加工具提示
+        add_tooltip(sign_in_button, "執行簽到操作\n系統會自動檢查校內網絡環境")
+        
+        # 簽退按鈕
         sign_out_button = ModernButton(button_frame, text="簽退", command=self.sign_out,
-                                     bg=COLORS["secondary"], activebackground="#27ae60")
-        sign_out_button.pack(side=tk.LEFT, padx=5)
+                                    bg=COLORS["secondary"], width=8, padx=5, pady=3, height=1)
+        sign_out_button.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # 為簽退按鈕添加工具提示
+        add_tooltip(sign_out_button, "執行簽退操作\n需要先完成簽到才能簽退")
         
         edit_button = ModernButton(button_frame, text="編輯", command=self.edit)
         edit_button.pack(side=tk.RIGHT, padx=(5, 0))
@@ -495,3 +508,35 @@ class TaskCard(tk.Frame):
         """執行簽退操作"""
         if self.on_sign_out:
             self.on_sign_out(self.task)
+    
+    def get_status_tooltip_text(self):
+        """獲取狀態提示文本"""
+        if hasattr(self.task, 'campus_restricted') and self.task.campus_restricted:
+            return "此任務由於網絡環境限制暫時無法執行\n請確保連接到校內網絡後再試"
+            
+        if getattr(self.task, 'sign_in_done', False) and getattr(self.task, 'sign_out_done', False):
+            return "任務已完成，已成功執行簽到和簽退"
+        elif getattr(self.task, 'sign_in_done', False):
+            return "已完成簽到，等待簽退"
+        elif self._is_due_today():
+            # 判斷是否已過簽到時間
+            now = datetime.datetime.now().strftime("%H:%M")
+            
+            if now >= self.task.sign_in_time:
+                return "簽到時間已到，但尚未簽到"
+            else:
+                return "等待任務開始時間"
+        elif self._is_past_date():
+            return "任務日期已過，未能完成"
+        else:
+            return "未來任務，等待任務日期到來"
+    
+    def _is_due_today(self):
+        """檢查是否為今天的任務"""
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        return self.task.date == today
+        
+    def _is_past_date(self):
+        """檢查是否為過去的任務"""
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        return self.task.date < today

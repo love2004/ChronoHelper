@@ -10,12 +10,20 @@ import os
 import sys
 import time
 import random
+import urllib3
+import requests
+import traceback
+from typing import Callable, Any
+
+# 將當前目錄添加到系統路徑，以便導入本地模塊
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from chronohelper.config.colors import COLORS
 from chronohelper.config.settings import APP_SETTINGS
 from chronohelper.ui.notification import NotificationWindow
 from chronohelper.ui.dialogs import SettingsDialog, ModernTaskDialog
 from chronohelper.ui.task_card import TaskCard
+from chronohelper.ui.helpers import SettingTooltip
 from chronohelper.utils.logger import Logger
 from chronohelper.utils.network import NetworkUtils
 from chronohelper.utils.file_handler import FileHandler
@@ -151,6 +159,28 @@ class ChronoHelper:
         tk.Label(tasks_header, text="任務列表", font=("Arial", 14, "bold"), 
                  bg=COLORS["background"], fg=COLORS["text"]).pack(side=tk.LEFT)
         
+        # 添加排序選項
+        sort_frame = tk.Frame(tasks_header, bg=COLORS["background"])
+        sort_frame.pack(side=tk.LEFT, padx=15)
+        
+        tk.Label(sort_frame, text="排序:", bg=COLORS["background"], fg=COLORS["text"]).pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.sort_options = [
+            "日期 ↑",
+            "日期 ↓",
+            "簽到時間 ↑",
+            "簽到時間 ↓",
+            "名稱 ↑",
+            "名稱 ↓",
+            "狀態優先"
+        ]
+        self.sort_var = tk.StringVar()
+        self.sort_var.set(self.sort_options[0])  # 預設為日期升序
+        
+        sort_dropdown = ttk.Combobox(sort_frame, textvariable=self.sort_var, values=self.sort_options, width=10, state="readonly")
+        sort_dropdown.pack(side=tk.LEFT)
+        sort_dropdown.bind("<<ComboboxSelected>>", lambda e: self.refresh_task_list())
+        
         from chronohelper.ui.base import ModernButton
         add_button = ModernButton(tasks_header, text="+ 新增任務", command=self.add_task)
         add_button.pack(side=tk.RIGHT)
@@ -201,18 +231,10 @@ class ChronoHelper:
         button_frame = tk.Frame(status_header, bg=COLORS["card"])
         button_frame.pack(side=tk.RIGHT)
         
-        # 添加重置按鈕
-        reset_button = tk.Button(button_frame, text="重置", bg=COLORS["card"],
-                               fg=COLORS["warning"], relief=tk.FLAT, bd=0, padx=5,
-                               command=self.reset_statistics,
-                               activebackground=COLORS["card_hover"],
-                               activeforeground=COLORS["warning_dark"])
-        reset_button.pack(side=tk.RIGHT, padx=(0, 5))
-        
         # 添加刷新按鈕
         refresh_button = tk.Button(button_frame, text="⟳", bg=COLORS["card"],
                                   fg=COLORS["primary"], relief=tk.FLAT, bd=0, padx=5,
-                                  command=self.update_system_stats,
+                                  command=self.refresh_network_status,
                                   activebackground=COLORS["card_hover"],
                                   activeforeground=COLORS["primary_dark"])
         refresh_button.pack(side=tk.RIGHT)
@@ -372,15 +394,73 @@ class ChronoHelper:
             widget.destroy()
         
         if not self.tasks:
-            # 顯示空任務提示
-            empty_label = tk.Label(self.tasks_frame, text="目前沒有任務，請點擊「新增任務」來開始", 
-                                 font=("Arial", 11), bg=COLORS["background"], fg=COLORS["light_text"],
-                                 padx=20, pady=40)
-            empty_label.pack(fill=tk.X)
+            # 顯示友好的空任務提示
+            empty_frame = tk.Frame(self.tasks_frame, bg=COLORS["card"], padx=20, pady=30)
+            empty_frame.pack(fill=tk.X, padx=5, pady=10)
+            
+            # 改進邊框樣式
+            empty_frame.config(highlightbackground=COLORS["border"], highlightthickness=1, relief=tk.FLAT)
+            
+            # 添加圖示
+            icon_label = tk.Label(empty_frame, text="📋", font=("Arial", 36), bg=COLORS["card"], fg=COLORS["primary"])
+            icon_label.pack(pady=(10, 5))
+            
+            # 添加標題和說明文字
+            title_label = tk.Label(empty_frame, text="沒有待辦任務", font=("Arial", 14, "bold"), 
+                                 bg=COLORS["card"], fg=COLORS["text"])
+            title_label.pack(pady=(5, 10))
+            
+            message_label = tk.Label(empty_frame, 
+                                   text="您還沒有建立任何簽到簽退任務。\n點擊下方按鈕來新增第一個任務！", 
+                                   font=("Arial", 10), bg=COLORS["card"], fg=COLORS["light_text"],
+                                   wraplength=400, justify=tk.CENTER)
+            message_label.pack(pady=(0, 15))
+            
+            # 添加快速新增按鈕
+            from chronohelper.ui.base import ModernButton
+            add_task_button = ModernButton(empty_frame, text="+ 新增任務", command=self.add_task)
+            add_task_button.pack(pady=(0, 10))
+            
             return
         
-        # 排序任務：先按日期，再按簽到時間
-        sorted_tasks = sorted(self.tasks, key=lambda x: (x.date, x.sign_in_time))
+        # 根據排序設定排序任務
+        sort_option = self.sort_var.get()
+        
+        if sort_option == "日期 ↑":
+            sorted_tasks = sorted(self.tasks, key=lambda x: (x.date, x.sign_in_time))
+        elif sort_option == "日期 ↓":
+            sorted_tasks = sorted(self.tasks, key=lambda x: (x.date, x.sign_in_time), reverse=True)
+        elif sort_option == "簽到時間 ↑":
+            sorted_tasks = sorted(self.tasks, key=lambda x: (x.sign_in_time, x.date))
+        elif sort_option == "簽到時間 ↓":
+            sorted_tasks = sorted(self.tasks, key=lambda x: (x.sign_in_time, x.date), reverse=True)
+        elif sort_option == "名稱 ↑":
+            sorted_tasks = sorted(self.tasks, key=lambda x: x.name)
+        elif sort_option == "名稱 ↓":
+            sorted_tasks = sorted(self.tasks, key=lambda x: x.name, reverse=True)
+        elif sort_option == "狀態優先":
+            # 優先顯示今天待處理的任務，再顯示未來任務，最後是已完成/過期任務
+            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            
+            def status_key(task):
+                # 1: 今天待處理, 2: 未來任務, 3: 已完成任務, 4: 過期未完成任務
+                if task.date == today:
+                    if task.sign_in_done and task.sign_out_done:
+                        return 3  # 今天已完成
+                    else:
+                        return 1  # 今天待處理
+                elif task.date > today:
+                    return 2  # 未來任務
+                else:  # 過期任務
+                    if task.sign_in_done and task.sign_out_done:
+                        return 3  # 已完成
+                    else:
+                        return 4  # 過期未完成
+            
+            sorted_tasks = sorted(self.tasks, key=lambda x: (status_key(x), x.date, x.sign_in_time))
+        else:
+            # 預設排序方式
+            sorted_tasks = sorted(self.tasks, key=lambda x: (x.date, x.sign_in_time))
         
         # 創建任務卡片，傳遞Canvas引用
         for task in sorted_tasks:
@@ -708,7 +788,9 @@ class ChronoHelper:
     
     def show_notification(self, title, message):
         """顯示桌面通知"""
-        NotificationWindow(title, message)
+        # 從設定中獲取通知顯示時間（秒），並轉換為毫秒
+        duration = self.settings.get("notification_duration", 5) * 1000
+        NotificationWindow(title, message, duration=duration)
         self.logger.log(f"通知: {title} - {message}")
     
     def periodic_network_check(self):
@@ -874,8 +956,13 @@ class ChronoHelper:
                 else:
                     quality_text = "校內網絡"
             
-            # 使用工具提示顯示網絡質量信息
-            ToolTip(self.network_quality_indicator, quality_text)
+            # 使用工具提示顯示網絡質量信息，並保存引用
+            if hasattr(self, 'network_quality_tooltip'):
+                # 更新現有的工具提示文本
+                self.network_quality_tooltip.text = quality_text
+            else:
+                # 創建新的工具提示並保存引用
+                self.network_quality_tooltip = SettingTooltip(self.network_quality_indicator, quality_text)
 
     def refresh_network_status(self):
         """手動刷新網絡狀態"""
@@ -1179,39 +1266,4 @@ class ChronoHelper:
                 self.status_var.set("統計數據已重置")
         else:
             messagebox.showwarning("操作失敗", "無法重置統計數據，請確保系統正常運行", parent=self.root)
-
-class ToolTip:
-    """工具提示類，顯示懸停提示"""
-    def __init__(self, widget, text):
-        self.widget = widget
-        self.text = text
-        self.tip_window = None
-        self.widget.bind("<Enter>", self.show_tip)
-        self.widget.bind("<Leave>", self.hide_tip)
-    
-    def show_tip(self, event=None):
-        """顯示提示窗口"""
-        if self.tip_window or not self.text:
-            return
-        
-        x, y, _, _ = self.widget.bbox("insert")
-        x += self.widget.winfo_rootx() + 25
-        y += self.widget.winfo_rooty() + 25
-        
-        # 創建工具提示窗口
-        self.tip_window = tw = tk.Toplevel(self.widget)
-        tw.wm_overrideredirect(True)
-        tw.wm_geometry(f"+{x}+{y}")
-        
-        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
-                      background="#ffffe0", relief=tk.SOLID, borderwidth=1,
-                      font=("Arial", "9", "normal"))
-        label.pack(padx=3, pady=3)
-    
-    def hide_tip(self, event=None):
-        """隱藏提示窗口"""
-        tw = self.tip_window
-        self.tip_window = None
-        if tw:
-            tw.destroy()
 

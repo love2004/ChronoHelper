@@ -4,15 +4,16 @@
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
 import datetime
 import re
 import requests
+
 from requests.exceptions import RequestException
 from bs4 import BeautifulSoup
-
+from tkinter import ttk, messagebox
 from chronohelper.config.colors import COLORS
 from chronohelper.ui.base import ModernButton
+from chronohelper.ui.helpers import add_tooltip
 
 class SettingsDialog:
     """設定對話框"""
@@ -125,6 +126,41 @@ class SettingsDialog:
             text="注意: 會話刷新間隔應小於會話有效時間，建議差值約30秒",
             bg=COLORS["card"], fg=COLORS["light_text"], wraplength=350, justify=tk.LEFT)
         session_info.grid(row=8, column=0, sticky=tk.W, padx=15, pady=(5, 0))
+        
+        # 為會話設定添加詳細工具提示
+        session_tooltip_text = (
+            "會話維持設定說明：\n\n"
+            "會話刷新間隔：系統會每隔此設定的時間自動訪問一次系統以保持會話活躍。\n"
+            "會話有效時間：系統假設會話在此時間內有效，超過此時間將重新登入。\n\n"
+            "建議設定：\n"
+            "- 會話刷新間隔：240秒（4分鐘）\n"
+            "- 會話有效時間：270秒（4.5分鐘）\n\n"
+            "這樣可以確保系統在會話過期前進行刷新，避免需要重新登入。"
+        )
+        add_tooltip(session_info, session_tooltip_text)
+        
+        # 通知設定
+        notification_frame = tk.Frame(general_frame, bg=COLORS["card"])
+        notification_frame.grid(row=9, column=0, sticky=tk.W, padx=15, pady=(20,5))
+        
+        tk.Label(notification_frame, text="通知顯示時間:", bg=COLORS["card"]).pack(side=tk.LEFT)
+        
+        self.notification_duration_var = tk.IntVar(value=settings.get("notification_duration", 5))
+        duration_spinbox = ttk.Spinbox(notification_frame, from_=1, to=10, increment=1, 
+                   textvariable=self.notification_duration_var, width=3)
+        duration_spinbox.pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(notification_frame, text="秒", bg=COLORS["card"]).pack(side=tk.LEFT)
+        
+        # 為通知設定添加工具提示
+        notify_tooltip_text = (
+            "通知設定說明：\n\n"
+            "通知顯示時間：控制桌面通知在螢幕上顯示的時間長度。\n"
+            "較長的顯示時間使您有更多時間閱讀通知內容，\n"
+            "但可能會占用螢幕空間更久。\n\n"
+            "建議時間：3-5秒"
+        )
+        add_tooltip(duration_spinbox, notify_tooltip_text)
         
         # API設定內容
         tk.Label(api_frame, text="API連接設定", font=("Arial", 11, "bold"), 
@@ -399,32 +435,76 @@ class SettingsDialog:
     
     def on_save(self):
         # 更新設定
-        self.settings["global_notify"] = self.notify_var.get()
-        self.settings["auto_start"] = self.autostart_var.get()
-        self.settings["check_interval"] = self.interval_var.get()
-        
-        # 保存會話設定
-        self.settings["session_refresh_interval"] = self.session_refresh_var.get()
-        self.settings["session_valid_time"] = self.session_valid_var.get()
-        
-        # 保存網絡設定
-        self.settings["enable_second_hop"] = self.enable_second_hop_var.get()
-        self.settings["hop_check_timeout"] = self.hop_timeout_var.get()
-        
-        self.settings["api_url"] = self.api_url_var.get().strip() or "https://adm_acc.dyu.edu.tw/entrance/index.php"
-        self.settings["login_url"] = self.login_url_var.get().strip() or "https://adm_acc.dyu.edu.tw/entrance/save_id.php"
-        self.settings["sign_in_url"] = self.sign_in_url_var.get().strip() or "https://adm_acc.dyu.edu.tw/budget/prj_epfee/kernel/kernel_prj_carddata_edit.php?page=NDgy"
-        self.settings["sign_out_url"] = self.sign_out_url_var.get().strip() or "https://adm_acc.dyu.edu.tw/budget/prj_epfee/kernel/kernel_prj_carddata_edit.php?page=NDgy"
-        self.settings["username"] = self.username_var.get().strip()
-        self.settings["password"] = self.password_var.get().strip()
-        self.settings["name"] = self.name_var.get().strip()
-        
-        # 保存預設時間
-        self.settings["default_sign_in"] = f"{self.default_sign_in_hour.get()}:{self.default_sign_in_minute.get()}"
-        self.settings["default_sign_out"] = f"{self.default_sign_out_hour.get()}:{self.default_sign_out_minute.get()}"
-        
-        self.result = self.settings
-        self.dialog.destroy()
+        try:
+            # 驗證設定值
+            try:
+                check_interval = int(self.interval_var.get())
+                session_refresh = int(self.session_refresh_var.get())
+                session_valid = int(self.session_valid_var.get())
+                notification_duration = int(self.notification_duration_var.get())
+                hop_timeout = int(self.hop_timeout_var.get())
+            except ValueError:
+                messagebox.showerror("格式錯誤", "請確保所有數值設定為有效數字")
+                return
+            
+            # 驗證會話維持時間邏輯
+            if session_refresh >= session_valid:
+                messagebox.showwarning("設定警告", "會話刷新間隔應小於會話有效時間。已自動調整為有效值。")
+                # 自動調整，刷新間隔設為有效時間的90%
+                session_refresh = int(session_valid * 0.9)
+                self.session_refresh_var.set(session_refresh)
+            
+            # 獲取基本設定
+            self.settings["global_notify"] = self.notify_var.get()
+            self.settings["auto_start"] = self.autostart_var.get()
+            self.settings["check_interval"] = check_interval
+            self.settings["session_refresh_interval"] = session_refresh
+            self.settings["session_valid_time"] = session_valid
+            self.settings["notification_duration"] = notification_duration
+            
+            # 獲取網絡設定
+            self.settings["enable_second_hop"] = self.enable_second_hop_var.get()
+            self.settings["hop_check_timeout"] = hop_timeout
+            
+            # 獲取API設定
+            self.settings["login_url"] = self.login_url_var.get().strip()
+            self.settings["api_url"] = self.api_url_var.get().strip()
+            self.settings["sign_in_url"] = self.sign_in_url_var.get().strip()
+            self.settings["sign_out_url"] = self.sign_out_url_var.get().strip()
+            
+            # 獲取登入設定
+            self.settings["username"] = self.username_var.get().strip()
+            self.settings["password"] = self.password_var.get()
+            
+            # 獲取用戶資訊
+            self.settings["name"] = self.name_var.get().strip()
+            
+            # 獲取默認時間設定
+            try:
+                # 格式化為HH:MM格式
+                sign_in_hour = int(self.default_sign_in_hour.get())
+                sign_in_minute = int(self.default_sign_in_minute.get())
+                sign_out_hour = int(self.default_sign_out_hour.get())
+                sign_out_minute = int(self.default_sign_out_minute.get())
+                
+                # 驗證時間格式
+                if not (0 <= sign_in_hour <= 23 and 0 <= sign_in_minute <= 59 and
+                        0 <= sign_out_hour <= 23 and 0 <= sign_out_minute <= 59):
+                    raise ValueError("無效的時間格式")
+                
+                self.settings["default_sign_in"] = f"{sign_in_hour:02d}:{sign_in_minute:02d}"
+                self.settings["default_sign_out"] = f"{sign_out_hour:02d}:{sign_out_minute:02d}"
+            except ValueError:
+                messagebox.showerror("時間格式錯誤", "請確保時間格式為有效的小時(0-23)和分鐘(0-59)")
+                return
+            
+            self.result = self.settings
+            self.dialog.destroy()
+            
+        except Exception as e:
+            messagebox.showerror("保存設定失敗", f"發生錯誤: {str(e)}")
+            self.log(f"保存設定時發生錯誤: {str(e)}")
+            return
     
     def on_cancel(self):
         self.dialog.destroy()
