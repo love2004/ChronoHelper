@@ -15,6 +15,7 @@ COLORS = {
     "light_text": "#7f8c8d",  # 淺色文字
     "card": "#ffffff",        # 卡片背景
     "card_hover": "#f8fafb",  # 卡片懸停背景
+    "card_active": "#eef2f7",  # 卡片活動背景（用於點擊時）
     "border": "#dfe6e9",      # 邊框色
     "progress_bg": "#e0e0e0",  # 進度條背景
     "progress_done": "#2ecc71", # 完成進度

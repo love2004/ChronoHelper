@@ -30,8 +30,14 @@ class TaskCard(tk.Frame):
         # 創建UI元件
         self.create_widgets()
         
-        # 只綁定右鍵事件，其他事件不阻斷
+        # 綁定所有事件
+        self.setup_event_bindings()
+    
+    def setup_event_bindings(self):
+        """設置卡片的所有事件綁定"""
+        # 綁定右鍵事件到卡片和子元件
         self.bind("<Button-3>", self.show_context_menu)
+        self.bind_right_click_to_children(self)
         
         # 綁定滾輪事件
         self.bind_wheel_events()
@@ -41,34 +47,14 @@ class TaskCard(tk.Frame):
         self.bind("<Leave>", self._on_leave)
     
     def _on_enter(self, event):
-        """鼠標進入卡片時的效果"""
-        self.config(highlightbackground=COLORS["primary"], bg=COLORS["card_hover"])
-        for child in self.winfo_children():
-            if isinstance(child, tk.Frame):
-                child.config(bg=COLORS["card_hover"])
-                for subchild in child.winfo_children():
-                    if isinstance(subchild, tk.Label) and subchild != self.status_label:
-                        subchild.config(bg=COLORS["card_hover"])
-                    elif isinstance(subchild, tk.Frame):
-                        subchild.config(bg=COLORS["card_hover"])
-                        for s in subchild.winfo_children():
-                            if isinstance(s, tk.Label):
-                                s.config(bg=COLORS["card_hover"])
+        """鼠標進入卡片時的效果 - 已禁用懸停效果"""
+        # 懸停效果已禁用
+        return None
     
     def _on_leave(self, event):
-        """鼠標離開卡片時的效果"""
-        self.config(highlightbackground=COLORS["border"], bg=COLORS["card"])
-        for child in self.winfo_children():
-            if isinstance(child, tk.Frame):
-                child.config(bg=COLORS["card"])
-                for subchild in child.winfo_children():
-                    if isinstance(subchild, tk.Label) and subchild != self.status_label:
-                        subchild.config(bg=COLORS["card"])
-                    elif isinstance(subchild, tk.Frame):
-                        subchild.config(bg=COLORS["card"])
-                        for s in subchild.winfo_children():
-                            if isinstance(s, tk.Label):
-                                s.config(bg=COLORS["card"])
+        """鼠標離開卡片時的效果 - 已禁用懸停效果"""
+        # 懸停效果已禁用
+        return None
     
     def bind_wheel_events(self):
         """綁定滾輪事件到所有子元素"""
@@ -108,13 +94,38 @@ class TaskCard(tk.Frame):
             self.main_canvas.yview_scroll(1, "units")
     
     def bind_right_click_to_children(self, widget):
-        """只綁定右鍵選單，不綁定其他事件"""
-        widget.bind("<Button-3>", self.show_context_menu)
+        """為所有子元件添加右鍵點擊處理
+        
+        Args:
+            widget: 要綁定的父元件
+        """
+        # 只為非按鈕的元件添加右鍵事件，避免和按鈕自身的事件衝突
+        if not isinstance(widget, ModernButton):
+            widget.bind("<Button-3>", self.show_context_menu, add="+")  # 使用add="+"確保不覆蓋其他綁定
+        
+        # 遞歸處理所有子元件
         for child in widget.winfo_children():
-            self.bind_right_click_to_children(child)
+            # 跳過按鈕元件，避免干擾其正常使用
+            if not isinstance(child, ModernButton):
+                self.bind_right_click_to_children(child)
     
     def show_context_menu(self, event):
-        """顯示右鍵選單，只阻止右鍵事件的傳播"""
+        """
+        顯示任務卡片的右鍵選單
+        
+        Args:
+            event: 觸發的事件對象
+            
+        Returns:
+            str: "break" 以阻止事件進一步傳播
+        """
+        # 保存原來的邊框顏色，但不改變背景色
+        original_highlight = self.cget("highlightbackground")
+        # 視覺反饋只改變邊框顏色
+        self.config(highlightbackground=COLORS["primary_dark"], 
+                    highlightthickness=2)  # 增加邊框厚度提高視覺反饋效果
+        
+        # 建立右鍵選單
         context_menu = tk.Menu(self, tearoff=0)
         
         # 狀態管理子選單
@@ -157,10 +168,34 @@ class TaskCard(tk.Frame):
         context_menu.add_command(label="編輯任務", command=self.edit)
         context_menu.add_command(label="刪除任務", command=self.delete)
         
-        # 顯示選單
-        context_menu.tk_popup(event.x_root, event.y_root)
+        # 在菜單關閉時恢復原來的樣式
+        def restore_style():
+            # 檢查滑鼠是否仍在卡片上，如果是則保持懸停樣式
+            x, y = self.winfo_pointerxy()
+            widget_under_mouse = self.winfo_containing(x, y)
+            
+            # 檢查滑鼠是否在這個卡片或其子元件上
+            is_on_this_card = widget_under_mouse and (widget_under_mouse == self or 
+                            self.winfo_id() in [w.winfo_id() for w in widget_under_mouse.winfo_toplevel().winfo_children()])
+            
+            # 如果滑鼠仍在卡片上，保持高亮效果
+            if is_on_this_card:
+                self.config(highlightbackground=COLORS["primary"], 
+                          highlightthickness=1)
+            else:
+                # 否則恢復原來的邊框樣式
+                self.config(highlightbackground=original_highlight, 
+                          highlightthickness=1)
         
-        # 只阻止右鍵事件繼續傳播
+        # 顯示選單並在關閉時恢復樣式
+        try:
+            context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            # 確保無論如何都會恢復樣式
+            self.after(100, restore_style)
+            context_menu.bind("<Unmap>", lambda e: restore_style())
+        
+        # 阻止事件繼續傳播，避免觸發其他綁定
         return "break"
     
     def create_widgets(self):
@@ -266,25 +301,34 @@ class TaskCard(tk.Frame):
                                    bg=COLORS["primary"], width=8, padx=5, pady=3, height=1)
         sign_in_button.pack(side=tk.LEFT, padx=(0, 10))
         
-        # 為簽到按鈕添加工具提示
-        add_tooltip(sign_in_button, "執行簽到操作\n系統會自動檢查校內網絡環境")
+        # 為簽到按鈕添加工具提示 - 使用較短延遲以提高響應速度
+        tooltip_sign_in = add_tooltip(sign_in_button, 
+                                     "執行簽到操作\n系統會自動檢查校內網絡環境",
+                                     delay=300, button_safe=True)
         
         # 簽退按鈕
         sign_out_button = ModernButton(button_frame, text="簽退", command=self.sign_out,
                                     bg=COLORS["secondary"], width=8, padx=5, pady=3, height=1)
         sign_out_button.pack(side=tk.LEFT, padx=(0, 10))
         
-        # 為簽退按鈕添加工具提示
-        add_tooltip(sign_out_button, "執行簽退操作\n需要先完成簽到才能簽退")
+        # 為簽退按鈕添加工具提示 - 使用較短延遲以提高響應速度
+        tooltip_sign_out = add_tooltip(sign_out_button, 
+                                      "執行簽退操作\n需要先完成簽到才能簽退",
+                                      delay=300, button_safe=True)
         
+        # 編輯按鈕
         edit_button = ModernButton(button_frame, text="編輯", command=self.edit)
         edit_button.pack(side=tk.RIGHT, padx=(5, 0))
+        # 為編輯按鈕添加工具提示
+        add_tooltip(edit_button, "編輯此任務的詳細信息", delay=300)
         
         # 刪除按鈕保持紅色
         delete_button = ModernButton(button_frame, text="刪除", command=self.delete,
                                    bg=COLORS["warning"], activebackground=COLORS["warning_dark"],
                                    keep_color=True)
         delete_button.pack(side=tk.RIGHT, padx=5)
+        # 為刪除按鈕添加工具提示
+        add_tooltip(delete_button, "刪除此任務\n此操作無法撤銷", delay=300)
         
         # 將右鍵菜單綁定到所有子元素
         self.bind_right_click_to_children(self)
@@ -319,23 +363,83 @@ class TaskCard(tk.Frame):
         self.flash_status()
     
     def flash_status(self):
-        """狀態更新時的視覺反饋"""
+        """狀態更新時的視覺反饋 - 只改變邊框顏色"""
         try:
             # 確保組件未被銷毀
             if self.winfo_exists():
-                orig_bg = self.cget("bg")
-                self.config(bg=COLORS["status_info"])  # 使用信息狀態背景色閃爍
+                # 記錄原邊框設定
+                orig_highlight = self.cget("highlightbackground")
+                orig_thickness = self.cget("highlightthickness")
+                
+                # 改變邊框顏色和厚度
+                self.config(highlightbackground=COLORS["status_info"],
+                          highlightthickness=2)  # 使用較粗的邊框提高視覺效果
                 
                 # 使用try-except確保恢復操作不會失敗
-                def restore_bg():
+                def restore_border():
                     try:
                         if self.winfo_exists():
-                            self.config(bg=orig_bg)
+                            self.config(highlightbackground=orig_highlight,
+                                      highlightthickness=orig_thickness)
                     except Exception:
                         pass  # 忽略可能的錯誤
                 
-                # 恢復原背景色
-                self.after(200, restore_bg)
+                # 恢復原邊框設定
+                self.after(200, restore_border)
+        except Exception:
+            pass  # 如果元素已被銷毀，則忽略錯誤
+    
+    def flash_reset(self):
+        """重置時的視覺反饋 - 只改變邊框顏色"""
+        try:
+            # 確保組件未被銷毀
+            if self.winfo_exists():
+                # 記錄原邊框設定
+                orig_highlight = self.cget("highlightbackground")
+                orig_thickness = self.cget("highlightthickness")
+                
+                # 改變邊框顏色和厚度
+                self.config(highlightbackground=COLORS["status_danger"],
+                          highlightthickness=2)  # 使用較粗的邊框提高視覺效果
+                
+                # 使用try-except確保恢復操作不會失敗
+                def restore_border():
+                    try:
+                        if self.winfo_exists():
+                            self.config(highlightbackground=orig_highlight,
+                                      highlightthickness=orig_thickness)
+                    except Exception:
+                        pass  # 忽略可能的錯誤
+                
+                # 恢復原邊框設定
+                self.after(300, restore_border)
+        except Exception:
+            pass  # 如果元素已被銷毀，則忽略錯誤
+    
+    def flash_complete(self):
+        """完成時的視覺反饋 - 只改變邊框顏色"""
+        try:
+            # 確保組件未被銷毀
+            if self.winfo_exists():
+                # 記錄原邊框設定
+                orig_highlight = self.cget("highlightbackground")
+                orig_thickness = self.cget("highlightthickness")
+                
+                # 改變邊框顏色和厚度
+                self.config(highlightbackground=COLORS["status_success"],
+                          highlightthickness=2)  # 使用較粗的邊框提高視覺效果
+                
+                # 使用try-except確保恢復操作不會失敗
+                def restore_border():
+                    try:
+                        if self.winfo_exists():
+                            self.config(highlightbackground=orig_highlight,
+                                      highlightthickness=orig_thickness)
+                    except Exception:
+                        pass  # 忽略可能的錯誤
+                
+                # 恢復原邊框設定
+                self.after(300, restore_border)
         except Exception:
             pass  # 如果元素已被銷毀，則忽略錯誤
     
@@ -363,48 +467,6 @@ class TaskCard(tk.Frame):
         
         # 提供強烈的視覺反饋
         self.flash_reset()
-    
-    def flash_reset(self):
-        """重置時的視覺反饋"""
-        try:
-            # 確保組件未被銷毀
-            if self.winfo_exists():
-                orig_bg = self.cget("bg")
-                self.config(bg=COLORS["status_danger"])  # 使用危險狀態背景色閃爍
-                
-                # 使用try-except確保恢復操作不會失敗
-                def restore_bg():
-                    try:
-                        if self.winfo_exists():
-                            self.config(bg=orig_bg)
-                    except Exception:
-                        pass  # 忽略可能的錯誤
-                
-                # 恢復原背景色
-                self.after(300, restore_bg)
-        except Exception:
-            pass  # 如果元素已被銷毀，則忽略錯誤
-    
-    def flash_complete(self):
-        """完成時的視覺反饋"""
-        try:
-            # 確保組件未被銷毀
-            if self.winfo_exists():
-                orig_bg = self.cget("bg")
-                self.config(bg=COLORS["status_success"])  # 使用成功狀態背景色閃爍
-                
-                # 使用try-except確保恢復操作不會失敗
-                def restore_bg():
-                    try:
-                        if self.winfo_exists():
-                            self.config(bg=orig_bg)
-                    except Exception:
-                        pass  # 忽略可能的錯誤
-                
-                # 恢復原背景色
-                self.after(300, restore_bg)
-        except Exception:
-            pass  # 如果元素已被銷毀，則忽略錯誤
     
     def set_all_complete(self):
         """設置所有狀態為完成"""

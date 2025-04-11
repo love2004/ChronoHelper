@@ -140,6 +140,9 @@ class ChronoHelper:
                                     activebackground=COLORS["primary_dark"],
                                     fg="white", activeforeground="white",
                                     bd=0, padx=15, pady=8)
+        # 添加懸停效果
+        settings_button.bind("<Enter>", lambda e: settings_button.config(bg=COLORS["primary_dark"]))
+        settings_button.bind("<Leave>", lambda e: settings_button.config(bg=COLORS["primary"]))
         settings_button.pack(side=tk.RIGHT)
         
         # 主內容區
@@ -327,10 +330,24 @@ class ChronoHelper:
                                fg="white", bg=COLORS["primary_dark"], font=("Arial", 10))
         powered_label.pack(side=tk.RIGHT, padx=(0, 10))
         
-        # 右下角信息
-        info_label = tk.Label(status_frame, text="ChronoHelper v1.0", 
-                            fg="white", bg=COLORS["primary_dark"], font=("Arial", 10))
-        info_label.pack(side=tk.RIGHT)
+        # 右下角版本號和項目鏈接
+        app_version = "v2.0.0"
+        github_link = "https://github.com/love2004/ChronoHelper"
+        
+        # 創建可點擊的版本號文字
+        info_label = tk.Label(status_frame, text=f"ChronoHelper {app_version}", 
+                            fg="white", bg=COLORS["primary_dark"], font=("Arial", 10),
+                            cursor="hand2")  # 手型游標表示可點擊
+        info_label.pack(side=tk.RIGHT, padx=(0, 10))
+        
+        # 為整個標籤添加點擊事件和懸停效果
+        def open_github(event):
+            import webbrowser
+            webbrowser.open(github_link)
+        
+        info_label.bind("<Button-1>", open_github)
+        info_label.bind("<Enter>", lambda e: info_label.config(fg=COLORS["secondary"], font=("Arial", 10, "underline")))
+        info_label.bind("<Leave>", lambda e: info_label.config(fg="white", font=("Arial", 10)))
         
         # 設置任務畫布的捲動功能
         self.tasks_frame.bind("<Configure>", self.on_frame_configure)
