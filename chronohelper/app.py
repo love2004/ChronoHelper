@@ -331,7 +331,7 @@ class ChronoHelper:
         powered_label.pack(side=tk.RIGHT, padx=(0, 10))
         
         # 右下角版本號和項目鏈接
-        app_version = "v2.0.0"
+        app_version = "v2.2.0"
         github_link = "https://github.com/love2004/ChronoHelper"
         
         # 創建可點擊的版本號文字
