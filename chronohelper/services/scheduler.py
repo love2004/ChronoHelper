@@ -7,9 +7,6 @@ import time
 import datetime
 import threading
 import random
-import os
-import socket
-from urllib.parse import urlparse
 
 class SchedulerService:
     """任務調度服務，負責自動執行到期任務"""

@@ -10,9 +10,6 @@ import os
 import sys
 import time
 import random
-import urllib3
-import requests
-import traceback
 from typing import Callable, Any
 
 # 將當前目錄添加到系統路徑，以便導入本地模塊

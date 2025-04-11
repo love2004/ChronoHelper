@@ -5,9 +5,9 @@
 
 import os
 import tkinter as tk
-from tkinter import ttk
 import datetime
 
+from tkinter import ttk
 from chronohelper.config.colors import COLORS
 from chronohelper.ui.base import ModernButton
 from chronohelper.ui.helpers import SettingTooltip, add_tooltip

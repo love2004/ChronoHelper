@@ -6,7 +6,6 @@
 import datetime
 import time
 import random
-import requests
 from requests.exceptions import RequestException, ConnectionError, Timeout, TooManyRedirects
 from urllib3.exceptions import ProtocolError
 
