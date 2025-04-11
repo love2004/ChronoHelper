@@ -214,7 +214,7 @@ class SchedulerService:
             
             # 檢查網絡環境（根據間隔控制檢查頻率）
             if skip_network_check:
-                # 使用應用程式已設置的網絡環境狀態
+                # 使用應用程式已設置的網絡狀態
                 current_is_campus = getattr(self.app, 'is_campus_network', False)
                 # 跳過保持會話，避免警告信息
                 session_valid = True

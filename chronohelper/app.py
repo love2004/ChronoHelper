@@ -457,6 +457,10 @@ class ChronoHelper:
         old_sign_in_done = getattr(task, '_prev_sign_in_done', False)
         old_sign_out_done = getattr(task, '_prev_sign_out_done', False)
         
+        # 保存任務當前狀態作為下次比較的基準
+        task._prev_sign_in_done = task.sign_in_done
+        task._prev_sign_out_done = task.sign_out_done
+        
         # 保存更新後的任務
         self.save_tasks()
         
@@ -509,12 +513,8 @@ class ChronoHelper:
             if (task.sign_in_done != old_sign_in_done) or (task.sign_out_done != old_sign_out_done):
                 stats["total_executions"] = stats.get("total_executions", 0) + 1
             
-            # 立即更新系統狀態面板
-            self.update_system_stats()
-        
-        # 保存任務當前狀態作為下次比較的基準
-        task._prev_sign_in_done = task.sign_in_done
-        task._prev_sign_out_done = task.sign_out_done
+            # 使用after延遲更新系統狀態面板，避免與界面更新衝突
+            self.root.after(100, self.update_system_stats)
     
     def load_cookies(self):
         """載入保存的Cookies"""

@@ -380,11 +380,24 @@ class TaskCard(tk.Frame):
     
     def flash_status(self):
         """狀態更新時的視覺反饋"""
-        orig_bg = self.cget("bg")
-        self.config(bg=COLORS["status_info"])  # 使用信息狀態背景色閃爍
-        
-        # 恢復原背景色
-        self.after(200, lambda: self.config(bg=orig_bg))
+        try:
+            # 確保組件未被銷毀
+            if self.winfo_exists():
+                orig_bg = self.cget("bg")
+                self.config(bg=COLORS["status_info"])  # 使用信息狀態背景色閃爍
+                
+                # 使用try-except確保恢復操作不會失敗
+                def restore_bg():
+                    try:
+                        if self.winfo_exists():
+                            self.config(bg=orig_bg)
+                    except Exception:
+                        pass  # 忽略可能的錯誤
+                
+                # 恢復原背景色
+                self.after(200, restore_bg)
+        except Exception:
+            pass  # 如果元素已被銷毀，則忽略錯誤
     
     def reset_status(self):
         """重置所有狀態"""
@@ -416,11 +429,45 @@ class TaskCard(tk.Frame):
     
     def flash_reset(self):
         """重置時的視覺反饋"""
-        orig_bg = self.cget("bg")
-        self.config(bg=COLORS["status_danger"])  # 使用危險狀態背景色閃爍
-        
-        # 恢復原背景色
-        self.after(300, lambda: self.config(bg=orig_bg))
+        try:
+            # 確保組件未被銷毀
+            if self.winfo_exists():
+                orig_bg = self.cget("bg")
+                self.config(bg=COLORS["status_danger"])  # 使用危險狀態背景色閃爍
+                
+                # 使用try-except確保恢復操作不會失敗
+                def restore_bg():
+                    try:
+                        if self.winfo_exists():
+                            self.config(bg=orig_bg)
+                    except Exception:
+                        pass  # 忽略可能的錯誤
+                
+                # 恢復原背景色
+                self.after(300, restore_bg)
+        except Exception:
+            pass  # 如果元素已被銷毀，則忽略錯誤
+    
+    def flash_complete(self):
+        """完成時的視覺反饋"""
+        try:
+            # 確保組件未被銷毀
+            if self.winfo_exists():
+                orig_bg = self.cget("bg")
+                self.config(bg=COLORS["status_success"])  # 使用成功狀態背景色閃爍
+                
+                # 使用try-except確保恢復操作不會失敗
+                def restore_bg():
+                    try:
+                        if self.winfo_exists():
+                            self.config(bg=orig_bg)
+                    except Exception:
+                        pass  # 忽略可能的錯誤
+                
+                # 恢復原背景色
+                self.after(300, restore_bg)
+        except Exception:
+            pass  # 如果元素已被銷毀，則忽略錯誤
     
     def set_all_complete(self):
         """設置所有狀態為完成"""
@@ -445,14 +492,6 @@ class TaskCard(tk.Frame):
         
         # 提供強烈的視覺反饋
         self.flash_complete()
-    
-    def flash_complete(self):
-        """完成時的視覺反饋"""
-        orig_bg = self.cget("bg")
-        self.config(bg=COLORS["status_success"])  # 使用成功狀態背景色閃爍
-        
-        # 恢復原背景色
-        self.after(300, lambda: self.config(bg=orig_bg))
     
     def reset_restriction(self):
         """重置環境限制狀態"""
