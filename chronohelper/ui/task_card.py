@@ -188,37 +188,6 @@ class TaskCard(tk.Frame):
                              font=("Arial", 10), bg=COLORS["card"], fg=COLORS["text"])
         time_label.pack(side=tk.RIGHT)
         
-        # 添加進度條
-        progress_frame = tk.Frame(self, bg=COLORS["card"])
-        progress_frame.pack(fill=tk.X, pady=(10, 5))
-        
-        # 計算進度百分比
-        progress_value = self._calculate_progress()
-        
-        # 提示文字
-        progress_text = tk.Label(progress_frame, text=f"任務進度: {int(progress_value*100)}%", 
-                               font=("Arial", 9), bg=COLORS["card"], fg=COLORS["text"])
-        progress_text.pack(side=tk.LEFT)
-        
-        # 創建進度條框架
-        progress_bar_frame = tk.Frame(self, height=6, bg=COLORS["card"])
-        progress_bar_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # 創建進度條底色
-        self.progress_bg = tk.Canvas(progress_bar_frame, height=6, bg=COLORS["progress_bg"], 
-                                   highlightthickness=0)
-        self.progress_bg.pack(fill=tk.X)
-        
-        # 根據進度創建進度條填充
-        progress_color = self._get_progress_color(progress_value)
-        self.progress_fill = self.progress_bg.create_rectangle(
-            0, 0, progress_value * self.progress_bg.winfo_reqwidth(), 6, 
-            fill=progress_color, outline=""
-        )
-        
-        # 進度條重繪綁定
-        self.progress_bg.bind("<Configure>", self._redraw_progress)
-        
         # 任務狀態管理區域
         status_frame = tk.Frame(self, bg=COLORS["card"])
         status_frame.pack(fill=tk.X, pady=5)
@@ -307,45 +276,6 @@ class TaskCard(tk.Frame):
         # 將右鍵菜單綁定到所有子元素
         self.bind_right_click_to_children(self)
     
-    def _calculate_progress(self):
-        """計算任務完成進度"""
-        progress = 0.0
-        
-        # 如果已經簽到，進度至少50%
-        if getattr(self.task, 'sign_in_done', False):
-            progress += 0.5
-        
-        # 如果已經簽退，再加50%
-        if getattr(self.task, 'sign_out_done', False):
-            progress += 0.5
-            
-        return progress
-    
-    def _get_progress_color(self, progress):
-        """根據進度值獲取顏色"""
-        if progress >= 1.0:
-            return COLORS["progress_done"]  # 綠色，完成
-        elif progress >= 0.5:
-            return COLORS["progress_pending"]  # 橙色，進行中
-        else:
-            return COLORS["progress_waiting"]  # 藍色，待處理
-    
-    def _redraw_progress(self, event):
-        """重繪進度條"""
-        progress = self._calculate_progress()
-        width = self.progress_bg.winfo_width()
-        progress_width = int(width * progress)
-        
-        # 清除現有進度條
-        self.progress_bg.delete(self.progress_fill)
-        
-        # 重繪進度條
-        progress_color = self._get_progress_color(progress)
-        self.progress_fill = self.progress_bg.create_rectangle(
-            0, 0, progress_width, 6, 
-            fill=progress_color, outline=""
-        )
-    
     def update_task_status(self, status_type, value):
         """更新任務狀態並刷新界面
         
@@ -367,9 +297,6 @@ class TaskCard(tk.Frame):
         # 更新UI狀態
         status_text, status_color = self.get_status_info()
         self.status_label.config(text=status_text, bg=status_color)
-        
-        # 重繪進度條
-        self._redraw_progress(None)
         
         # 通知應用程序更新任務狀態
         if self.on_update_status:
@@ -416,9 +343,6 @@ class TaskCard(tk.Frame):
         # 更新UI狀態
         status_text, status_color = self.get_status_info()
         self.status_label.config(text=status_text, bg=status_color)
-        
-        # 重繪進度條
-        self._redraw_progress(None)
         
         # 通知應用程序更新任務狀態
         if self.on_update_status:
@@ -482,9 +406,6 @@ class TaskCard(tk.Frame):
         # 更新UI狀態
         status_text, status_color = self.get_status_info()
         self.status_label.config(text=status_text, bg=status_color)
-        
-        # 重繪進度條
-        self._redraw_progress(None)
         
         # 通知應用程序更新任務狀態
         if self.on_update_status:
