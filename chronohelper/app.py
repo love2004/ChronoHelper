@@ -63,16 +63,20 @@ class ChronoHelper:
         
         self.load_cookies()
         
-        # 先進行網絡環境初始檢測
+        # 先進行網絡環境初始檢測，不使用緩存結果
         self.logger.log("進行初始網絡環境檢測...")
+        self.network_utils.clear_cache()  # 清除緩存，確保獲得新的檢測結果
         is_campus, ip, hop_info = self.network_utils.check_campus_network(verbose=True)
         self.update_network_status(is_campus, ip, hop_info, force_update=True)
         
-        # 啟動調度器
+        # 確保將結果設為應用程式的狀態
+        self.is_campus_network = is_campus
+        
+        # 啟動調度器（在網絡檢測完成後）
         self.scheduler = SchedulerService(self)
         
         # 啟動定期網絡檢測
-        self.root.after(5000, self.periodic_network_check)
+        self.root.after(10000, self.periodic_network_check)  # 10秒後開始第一次定期檢測
         
         # 註冊關閉窗口事件處理器
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -523,8 +527,8 @@ class ChronoHelper:
         
         # 如果狀態變化或需要強制更新
         if status_changed or force_update:
-            # 只在狀態變化時發出更改通知
-            if status_changed:
+            # 只在狀態變化且不是首次檢測時發出更改通知
+            if status_changed and had_previous_state:
                 if is_campus:
                     self.logger.log("網絡環境已變更: 校外 -> 校內")
                     
@@ -554,7 +558,7 @@ class ChronoHelper:
                     hop_ip = hop_info.get('ip', '未知')
                     self.logger.log(f"初始網絡環境檢測: 校內網絡 (通過第二躍點 {hop_ip})")
                 else:
-                    self.logger.log(f"初始網絡環境檢測: {network_type} 網絡 (IP: {ip})")
+                    self.logger.log(f"初始網絡環境檢測: {network_type}網絡")
         
             # 只在首次檢測或IP變更時記錄IP
             if not had_previous_state or self.current_ip != ip:

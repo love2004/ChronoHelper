@@ -43,7 +43,7 @@ class SchedulerService:
         """啟動調度線程"""
         if self.thread is None or not self.thread.is_alive():
             self.running = True
-            self.thread = threading.Thread(target=self.scheduler_loop)
+            self.thread = threading.Thread(target=self.scheduler_loop, daemon=True)
             self.thread.daemon = True
             self.thread.start()
             self.app.logger.log("調度器已啟動")
@@ -52,13 +52,27 @@ class SchedulerService:
         """停止調度線程"""
         self.running = False
         if self.thread and self.thread.is_alive():
-            self.thread.join(1)  # 等待線程結束，最多1秒
+            try:
+                self.thread.join(2)  # 等待線程結束，最多2秒
+                if self.thread.is_alive():
+                    self.app.logger.log("調度器無法正常停止，強制中止")
+                else:
+                    self.app.logger.log("調度器已停止")
+            except Exception as e:
+                self.app.logger.log(f"停止調度器時發生錯誤: {str(e)}")
+        else:
             self.app.logger.log("調度器已停止")
     
     def scheduler_loop(self):
         """調度器主循環，智能調整檢查頻率"""
+        # 首次啟動時，先等待較長時間（確保應用程式和網絡檢測完全初始化完成）
+        time.sleep(3)
+        
         # 首次啟動立即檢查一次，但不重複進行網絡檢測
         self.check_tasks(is_initial_check=True, skip_network_check=True)
+        
+        # 延遲更長時間再啟動正常的循環，避免干擾初始UI更新和網絡檢測
+        time.sleep(10)
         
         while self.running:
             try:
@@ -195,18 +209,32 @@ class SchedulerService:
             # 記錄開始時間，用於性能監控
             check_start_time = datetime.datetime.now()
             
+            # 記錄舊的網絡狀態（用於判斷狀態是否變更）
+            old_is_campus = getattr(self.app, 'is_campus_network', False)
+            
             # 檢查網絡環境（根據間隔控制檢查頻率）
             if skip_network_check:
                 # 使用應用程式已設置的網絡環境狀態
                 current_is_campus = getattr(self.app, 'is_campus_network', False)
+                # 跳過保持會話，避免警告信息
+                session_valid = True
             else:
                 # 正常執行網絡環境檢測
                 current_is_campus = self._check_network_environment()
-            
-            # 首先確保會話有效
-            session_valid = self._ensure_valid_session()
-            if not session_valid and current_is_campus:
-                self.app.logger.log("警告: 在校內網絡環境下無法維持有效會話")
+                
+                # 只有在實際狀態變化時才嘗試維持會話並顯示警告
+                if current_is_campus != old_is_campus:
+                    # 確保會話有效
+                    session_valid = self._ensure_valid_session()
+                    if not session_valid and current_is_campus:
+                        self.app.logger.log("警告: 在校內網絡環境下無法維持有效會話")
+                else:
+                    # 狀態無變化時，除非在校內網絡且上次檢測已超過10分鐘，否則跳過會話維持
+                    if current_is_campus and self.last_check_time and (datetime.datetime.now() - self.last_check_time).total_seconds() > 600:
+                        session_valid = self._ensure_valid_session()
+                        # 靜默處理會話問題，只在明確的錯誤時記錄
+                    else:
+                        session_valid = True
             
             # 獲取當前時間信息
             now = datetime.datetime.now()
@@ -267,60 +295,29 @@ class SchedulerService:
         # 更新檢查時間
         self.last_network_check = now
         
-        # 初始化記錄相關變數（如果不存在）
-        if not hasattr(self.app, 'last_network_log_time'):
-            self.app.last_network_log_time = None
-        if not hasattr(self.app, 'last_network_log_status'):
-            self.app.last_network_log_status = None
+        # 記錄舊的網絡狀態（用於後續判斷是否發生變化）
+        old_is_campus = getattr(self.app, 'is_campus_network', False)
         
         try:
-            # 取得目標網站主機名（從設定URL中提取）
-            target_host = None
-            api_url = self.app.settings.get("api_url", "")
-            if api_url:
-                parsed_url = urlparse(api_url)
-                target_host = parsed_url.netloc
-            
-            if not target_host:
-                target_host = "adm_acc.dyu.edu.tw"  # 預設主機名
-            
-            # 使用ping或連接測試來確認目標可達性
-            is_reachable = self._is_host_reachable(target_host)
-            
-            # 如果主機可達，執行更進一步的驗證
-            if is_reachable:
-                # 嘗試訪問API網址以進一步確認連接性
-                try:
-                    session = self.app.auth_service.get_session()
-                    api_url = self.app.settings.get("api_url", "https://adm_acc.dyu.edu.tw/entrance/index.php")
-                    response = session.head(api_url, timeout=5)
-                    is_reachable = 200 <= response.status_code < 400
-                except Exception:
-                    # 如果請求失敗，但主機可達，仍視為可用（可能是認證問題）
-                    pass
+            # 直接調用 NetworkUtils 的檢測方法進行網絡環境檢測
+            # 設置 verbose=False 避免重複的日誌輸出
+            is_campus, ip, hop_info = self.app.network_utils.check_campus_network(verbose=False)
             
             # 更新網絡狀態
-            current_is_campus = is_reachable
+            current_is_campus = is_campus
             self.app.is_campus_network = current_is_campus
             
-            # 檢查是否需要記錄日誌
-            should_log = False
-            if self.app.last_network_log_time is None:
-                # 首次檢測
-                should_log = True
-            elif (now - self.app.last_network_log_time).total_seconds() >= 300:
-                # 至少間隔5分鐘
-                should_log = True
-            elif self.app.last_network_log_status != current_is_campus:
-                # 網絡狀態發生變化
-                should_log = True
-                
-            if should_log:
+            # 只在網絡狀態變更時記錄日誌
+            if old_is_campus != current_is_campus:
                 if current_is_campus:
-                    self.app.logger.log("檢測到校內網絡環境，系統可正常運作")
+                    self.app.logger.log("網絡環境已變更: 校外 -> 校內")
+                    # 從校外變為校內，重置環境限制
+                    reset_count = self.app.reset_campus_restrictions()
                 else:
-                    self.app.logger.log("檢測到校外網絡環境，任務執行將受限")
+                    self.app.logger.log("網絡環境已變更: 校內 -> 校外")
+                    self.app.show_notification("網絡環境變更", "檢測到您已離開校內網絡\n簽到/簽退操作將暫停執行")
                 
+                # 更新日誌記錄時間和狀態
                 self.app.last_network_log_time = now
                 self.app.last_network_log_status = current_is_campus
             
@@ -337,40 +334,6 @@ class SchedulerService:
             # 發生錯誤時，保守地返回False
             self.app.is_campus_network = False
             self.app.status_var.set("網絡檢測錯誤，任務已暫停")
-            return False
-    
-    def _is_host_reachable(self, host):
-        """檢查主機是否可達
-        
-        Args:
-            host: 要檢查的主機名或IP
-            
-        Returns:
-            bool: 主機是否可達
-        """
-        # 首先嘗試TCP連接測試
-        try:
-            # 嘗試連接443端口（HTTPS）
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(2)
-            result = sock.connect_ex((host, 443))
-            sock.close()
-            if result == 0:
-                return True
-        except Exception:
-            pass
-        
-        # 如果TCP連接失敗，嘗試ICMP ping測試
-        try:
-            # Windows系統使用-n參數
-            if os.name == 'nt':
-                response = os.system(f"ping -n 1 -w 1000 {host} > nul 2>&1")
-            # Linux/Mac系統使用-c參數
-            else:
-                response = os.system(f"ping -c 1 -W 1 {host} > /dev/null 2>&1")
-            
-            return response == 0
-        except Exception:
             return False
     
     def _ensure_valid_session(self):
