@@ -118,12 +118,14 @@ class NetworkUtils:
         
         self.logger.log("網絡檢測操作已全部停止")
     
-    def check_campus_network(self, verbose: bool = True, check_second_hop: Optional[bool] = None) -> Tuple[bool, str, Dict[str, Any]]:
+    def check_campus_network(self, verbose: bool = True, check_second_hop: Optional[bool] = None,
+                           wait_for_hop_check: bool = False) -> Tuple[bool, str, Dict[str, Any]]:
         """檢測是否在校內網絡環境（163.23.x.x）
         
         Args:
             verbose: 是否輸出檢測過程的日誌，默認為True
             check_second_hop: 是否檢查第二躍點，如果為None則使用設定中的值
+            wait_for_hop_check: 是否等待第二躍點檢測完成後再返回結果
             
         Returns:
             tuple: (is_campus, ip_address, hop_info) 是否在校內網絡、當前IP地址和躍點信息
@@ -194,7 +196,8 @@ class NetworkUtils:
             is_campus = isinstance(ip_address, str) and ip_address.startswith('163.23.')
             self.cache['is_campus'] = is_campus
             
-            if verbose:
+            # 在wait_for_hop_check=True模式下，延遲輸出日誌
+            if verbose and not wait_for_hop_check:
                 self.logger.log(f"檢測到區域網路IP地址: {ip_address}")
                 if is_campus:
                     self.logger.log("網絡檢測結果: 校內網絡 ✓")
@@ -207,6 +210,11 @@ class NetworkUtils:
                 # 這是因為本機IP現在是校內網絡，不需要依賴第二躍點檢測
                 self.cache['is_campus'] = True
                 
+                # 在等待模式下輸出日誌
+                if verbose and wait_for_hop_check:
+                    self.logger.log(f"檢測到區域網路IP地址: {ip_address}")
+                    self.logger.log("網絡檢測結果: 校內網絡 ✓")
+                
                 # 釋放鎖並返回結果
                 self.cache['check_in_progress'] = False
                 self.lock.release()
@@ -214,7 +222,11 @@ class NetworkUtils:
                 
             # 如果不需要檢查第二躍點，直接返回本機檢測結果
             if not check_second_hop:
-                if verbose and not is_campus:
+                if verbose:
+                    if wait_for_hop_check:
+                        self.logger.log(f"檢測到區域網路IP地址: {ip_address}")
+                        self.logger.log("當前不是校內網絡")
+                    
                     self.logger.log("註: 第二躍點檢測已禁用，不進行進一步檢查")
                 
                 # 確保將狀態設為非校內，因為第二躍點檢測已禁用
@@ -226,10 +238,6 @@ class NetworkUtils:
                 return False, ip_address, {}
             
             # 到這裡表示：本機IP不是校內網絡，但需要檢查第二躍點
-            # 啟動一個線程進行第二躍點檢測，不阻塞主線程
-            if verbose:
-                self.logger.log("本機IP不是校內網絡，在背景檢查第二躍點...")
-            
             # 先獲取緩存中可能的第二躍點信息，以便返回給調用者
             cached_hop_info = self.cache['hop_info'] or {}
             cached_is_campus = cached_hop_info.get('is_campus', False)
@@ -237,73 +245,107 @@ class NetworkUtils:
             # 記錄當前網絡狀態（用於檢測變更）
             prev_is_campus = self.cache['is_campus'] or cached_is_campus
             
-            # 創建檢測線程函數
-            def check_hop_thread() -> None:
-                try:
-                    # 使用設定中的超時值
-                    timeout = self.settings.get("hop_check_timeout", 10)
-                    
-                    # 檢測第二躍點
-                    second_hop_info = self.check_second_hop(verbose, timeout)
-                    
-                    # 檢查是否已關閉
-                    if self.shutdown_flag:
-                        return
-                        
-                    # 更新緩存中的躍點信息和校內網絡狀態
-                    with contextlib.suppress(Exception):
-                        with self.lock:
-                            # 更新緩存
-                            self.cache['hop_info'] = second_hop_info
-                            
-                            # 檢查第二躍點是否表明在校內網絡
-                            new_is_campus = second_hop_info.get('is_campus', False)
-                            
-                            # 如果第二躍點是校內網絡，更新is_campus標記
-                            if new_is_campus:
-                                self.cache['is_campus'] = True
-                                if verbose:
-                                    self.logger.log(f"網絡檢測結果: 通過第二躍點識別為校內網絡 ✓")
-                                
-                                # 移除直接輸出狀態變更日誌的代碼，讓app的update_network_status方法統一處理
-                                # 只記錄檢測結果，不顯示狀態變更訊息
-                                if not prev_is_campus and new_is_campus and verbose:
-                                    hop_ip = second_hop_info.get('ip', '未知')
-                                    self.logger.log(f"通過第二躍點檢測 ({hop_ip}) 識別為校內網絡")
-                            else:
-                                # 維持本機檢測結果，在第二躍點檢測失敗時不要覆蓋
-                                if verbose:
-                                    self.logger.log(f"網絡檢測結果: 非校內網絡 ✗")
-                except Exception as e:
+            # 如果選擇等待第二躍點檢測完成
+            if wait_for_hop_check:
+                if verbose:
+                    self.logger.log(f"檢測到區域網路IP地址: {ip_address}")
+                    self.logger.log("檢測第二躍點中，請稍候...")
+                
+                # 直接在當前線程執行第二躍點檢測
+                timeout = self.settings.get("hop_check_timeout", 3)
+                second_hop_info = self.check_second_hop(verbose, timeout)
+                
+                # 更新緩存
+                self.cache['hop_info'] = second_hop_info
+                
+                # 檢查第二躍點是否表明在校內網絡
+                new_is_campus = second_hop_info.get('is_campus', False)
+                
+                # 更新最終結果
+                if new_is_campus:
+                    self.cache['is_campus'] = True
                     if verbose:
-                        self.logger.log(f"第二躍點檢測異常: {type(e).__name__} - {str(e)}")
-                finally:
-                    # 確保標記被正確設置
-                    with contextlib.suppress(Exception):
-                        self.cache['check_in_progress'] = False
-                    
-                    # 從活動線程列表中移除自己
-                    with contextlib.suppress(Exception):
-                        if thread in self.active_threads:
-                            self.active_threads.remove(thread)
-            
-            # 創建線程
-            thread = threading.Thread(target=check_hop_thread, daemon=True)
-            
-            # 添加到活動線程列表
-            self.active_threads.append(thread)
-            
-            # 啟動線程
-            thread.start()
-            
-            # 釋放鎖，讓方法可以立即返回結果
-            self.lock.release()
-            
-            # 返回最佳的當前狀態（優先使用已有的第二躍點檢測結果）
-            if cached_is_campus:
-                return True, ip_address, cached_hop_info
+                        self.logger.log(f"網絡檢測結果: 通過第二躍點識別為校內網絡 ✓")
+                else:
+                    if verbose:
+                        self.logger.log(f"網絡檢測結果: 非校內網絡 ✗")
+                
+                # 釋放鎖並返回最終結果
+                self.cache['check_in_progress'] = False
+                self.lock.release()
+                return new_is_campus, ip_address, second_hop_info
             else:
-                return False, ip_address, cached_hop_info
+                # 非等待模式：啟動一個線程進行第二躍點檢測，不阻塞主線程
+                if verbose:
+                    self.logger.log("本機IP不是校內網絡，在背景檢查第二躍點...")
+                
+                # 創建檢測線程函數
+                def check_hop_thread() -> None:
+                    try:
+                        # 使用設定中的超時值
+                        timeout = self.settings.get("hop_check_timeout", 3)
+                        
+                        # 檢測第二躍點
+                        second_hop_info = self.check_second_hop(verbose, timeout)
+                        
+                        # 檢查是否已關閉
+                        if self.shutdown_flag:
+                            return
+                            
+                        # 更新緩存中的躍點信息和校內網絡狀態
+                        with contextlib.suppress(Exception):
+                            with self.lock:
+                                # 更新緩存
+                                self.cache['hop_info'] = second_hop_info
+                                
+                                # 檢查第二躍點是否表明在校內網絡
+                                new_is_campus = second_hop_info.get('is_campus', False)
+                                
+                                # 如果第二躍點是校內網絡，更新is_campus標記
+                                if new_is_campus:
+                                    self.cache['is_campus'] = True
+                                    if verbose:
+                                        self.logger.log(f"網絡檢測結果: 通過第二躍點識別為校內網絡 ✓")
+                                    
+                                    # 移除直接輸出狀態變更日誌的代碼，讓app的update_network_status方法統一處理
+                                    # 只記錄檢測結果，不顯示狀態變更訊息
+                                    if not prev_is_campus and new_is_campus and verbose:
+                                        hop_ip = second_hop_info.get('ip', '未知')
+                                        self.logger.log(f"通過第二躍點檢測 ({hop_ip}) 識別為校內網絡")
+                                else:
+                                    # 維持本機檢測結果，在第二躍點檢測失敗時不要覆蓋
+                                    if verbose:
+                                        self.logger.log(f"網絡檢測結果: 非校內網絡 ✗")
+                    except Exception as e:
+                        if verbose:
+                            self.logger.log(f"第二躍點檢測異常: {type(e).__name__} - {str(e)}")
+                    finally:
+                        # 確保標記被正確設置
+                        with contextlib.suppress(Exception):
+                            self.cache['check_in_progress'] = False
+                        
+                        # 從活動線程列表中移除自己
+                        with contextlib.suppress(Exception):
+                            if thread in self.active_threads:
+                                self.active_threads.remove(thread)
+                
+                # 創建線程
+                thread = threading.Thread(target=check_hop_thread, daemon=True)
+                
+                # 添加到活動線程列表
+                self.active_threads.append(thread)
+                
+                # 啟動線程
+                thread.start()
+                
+                # 釋放鎖，讓方法可以立即返回結果
+                self.lock.release()
+                
+                # 返回最佳的當前狀態（優先使用已有的第二躍點檢測結果）
+                if cached_is_campus:
+                    return True, ip_address, cached_hop_info
+                else:
+                    return False, ip_address, cached_hop_info
             
         except Exception as e:
             if verbose:

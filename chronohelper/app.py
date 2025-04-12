@@ -94,7 +94,8 @@ class ChronoHelper:
         # 先進行網絡環境初始檢測，不使用緩存結果
         self.logger.log("進行初始網絡環境檢測...")
         self.network_utils.clear_cache()  # 清除緩存，確保獲得新的檢測結果
-        is_campus, ip, hop_info = self.network_utils.check_campus_network(verbose=True)
+        is_campus, ip, hop_info = self.network_utils.check_campus_network(
+            verbose=True, wait_for_hop_check=True)
         self.update_network_status(is_campus, ip, hop_info, force_update=True)
         
         # 確保將結果設為應用程式的狀態
@@ -837,7 +838,7 @@ class ChronoHelper:
         check_interval = max(10000, self.settings.get("network_check_interval", 30) * 1000)
         self.root.after(check_interval, self.periodic_network_check)
     
-    def update_network_status(self, is_campus, ip, hop_info=None, force_update=False):
+    def update_network_status(self, is_campus, ip, hop_info=None, force_update=False, skip_ip_log=False):
         """更新網絡狀態顯示
         
         Args:
@@ -845,6 +846,7 @@ class ChronoHelper:
             ip: IP地址
             hop_info: 躍點信息
             force_update: 是否強制更新UI，不考慮狀態是否變化
+            skip_ip_log: 是否跳過IP地址記錄(用於避免重複輸出)
         """
         # 檢查是否有前一個狀態
         had_previous_state = hasattr(self, 'is_campus_network')
@@ -887,7 +889,8 @@ class ChronoHelper:
         
             # 只在首次檢測或IP變更時記錄IP
             if not had_previous_state or self.current_ip != ip:
-                self.logger.log(f"IP地址: {ip}")
+                if not skip_ip_log:
+                    self.logger.log(f"IP地址: {ip}")
             
             # 更新UI顯示
             if is_campus:
@@ -990,13 +993,15 @@ class ChronoHelper:
         """刷新網絡狀態實際任務"""
         try:
             self.logger.log("正在刷新網絡狀態...")
-            is_campus, ip, hop_info = self.network_utils.check_campus_network(verbose=True)
+            # 使用wait_for_hop_check=True，等待第二躍點檢測完成再顯示結果
+            is_campus, ip, hop_info = self.network_utils.check_campus_network(
+                verbose=True, wait_for_hop_check=True)
             
             # 保存當前狀態以檢測變化
             old_status = getattr(self, 'is_campus_network', None)
             
-            # 更新網絡狀態（強制更新界面）
-            self.update_network_status(is_campus, ip, hop_info, force_update=True)
+            # 更新網絡狀態（強制更新界面），添加skip_ip_log=True避免重複輸出IP地址
+            self.update_network_status(is_campus, ip, hop_info, force_update=True, skip_ip_log=True)
             
             # 如果網絡狀態發生變化，進行額外處理
             if old_status != is_campus:
