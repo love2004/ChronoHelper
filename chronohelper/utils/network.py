@@ -387,7 +387,7 @@ class NetworkUtils:
             if system == 'windows':
                 # Windows使用tracert命令
                 target = '8.8.8.8'  # Google DNS服務器作為目標
-                cmd = f'tracert -h 2 -w 500 {target}'
+                cmd = f'tracert -h 2 {target}'
                 
                 if verbose:
                     self.logger.log(f"執行命令: {cmd}")
@@ -439,7 +439,7 @@ class NetworkUtils:
             else:
                 # Linux/Mac使用traceroute命令
                 target = '8.8.8.8'  # Google DNS服務器作為目標
-                cmd = f'traceroute -m 2 -w 1 {target}'
+                cmd = f'traceroute -m 2 {target}'
                 
                 if verbose:
                     self.logger.log(f"執行命令: {cmd}")
