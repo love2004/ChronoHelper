@@ -7,6 +7,9 @@ import tkinter as tk
 import datetime
 import re
 import requests
+import subprocess
+import webbrowser
+import os
 
 from requests.exceptions import RequestException
 from bs4 import BeautifulSoup
@@ -79,6 +82,10 @@ class SettingsDialog:
         # 預設時間選項卡
         time_frame = tk.Frame(notebook, bg=COLORS["card"], padx=15, pady=15)
         notebook.add(time_frame, text="預設時間")
+        
+        # VPN 設置選項卡
+        vpn_frame = tk.Frame(notebook, bg=COLORS["card"], padx=15, pady=15)
+        notebook.add(vpn_frame, text="VPN")
         
         # 基本設定內容
         self.notify_var = tk.BooleanVar(value=settings.get("global_notify", True))
@@ -304,6 +311,40 @@ class SettingsDialog:
                  bg=COLORS["card"], fg=COLORS["light_text"], wraplength=350, justify=tk.LEFT).grid(
                  row=7, column=0, columnspan=3, sticky=tk.W, padx=25, pady=(0, 10))
         
+        # VPN 設置內容
+        vpn_label = ttk.LabelFrame(vpn_frame, text="VPN 設置")
+        vpn_label.pack(fill=tk.X, padx=10, pady=5)
+        
+        self.vpn_var = tk.BooleanVar(value=settings.get("use_vpn", False))
+        self.vpn_checkbox = ttk.Checkbutton(
+            vpn_label,
+            text="啟用 VPN",
+            variable=self.vpn_var,
+            command=self._on_vpn_toggle
+        )
+        self.vpn_checkbox.pack(anchor=tk.W, padx=5, pady=5)
+        
+        # Docker 狀態框架
+        docker_frame = ttk.LabelFrame(vpn_frame, text="Docker 狀態")
+        docker_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Docker 狀態標籤
+        self.docker_status_label = ttk.Label(
+            docker_frame,
+            text="等待檢查...",
+            foreground="gray"
+        )
+        self.docker_status_label.pack(anchor=tk.W, padx=5, pady=5)
+        
+        # 安裝按鈕（初始隱藏）
+        self.install_button = ModernButton(
+            docker_frame,
+            text="安裝 Docker",
+            command=self._on_docker_install_click
+        )
+        self.install_button.pack(anchor=tk.W, padx=5, pady=5)
+        self.install_button.pack_forget()  # 初始時隱藏按鈕
+        
         # 設置最小窗口大小，確保按鈕始終可見
         self.dialog.update_idletasks()
         self.dialog.minsize(500, 450)  # 增加最小高度
@@ -498,6 +539,9 @@ class SettingsDialog:
                 messagebox.showerror("時間格式錯誤", "請確保時間格式為有效的小時(0-23)和分鐘(0-59)")
                 return
             
+            # 保存 VPN 設置
+            self.settings["use_vpn"] = self.vpn_var.get()
+            
             self.result = self.settings
             self.dialog.destroy()
             
@@ -509,6 +553,131 @@ class SettingsDialog:
     def on_cancel(self):
         self.dialog.destroy()
 
+    def _check_docker_status(self):
+        """檢查 Docker 安裝和運行狀態
+        
+        Returns:
+            tuple: (is_installed, is_running, error_message)
+        """
+        try:
+            # 在 Windows 上檢查 Docker Desktop 的安裝路徑
+            docker_paths = [
+                r"C:\Program Files\Docker\Docker\Docker Desktop.exe",
+                r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+            ]
+            docker_installed = any(os.path.exists(path) for path in docker_paths)
+            
+            if not docker_installed:
+                self.log("未在標準路徑找到 Docker Desktop")
+                # 嘗試通過命令檢查
+                try:
+                    result = subprocess.run(
+                        ["where", "docker"],
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    docker_installed = bool(result.stdout.strip())
+                    self.log(f"通過 where 命令找到 docker: {result.stdout.strip()}")
+                except subprocess.CalledProcessError:
+                    self.log("where docker 命令失敗")
+                    return False, False, "Docker 未安裝"
+            
+            if docker_installed:
+                # Docker 已安裝，檢查服務狀態
+                try:
+                    subprocess.run(
+                        ["docker", "info"],
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    return True, True, "Docker 已安裝且運行中"
+                except subprocess.CalledProcessError:
+                    return True, False, "Docker 已安裝但未運行"
+            
+            return False, False, "Docker 未安裝"
+            
+        except Exception as e:
+            self.log(f"檢查 Docker 時發生錯誤: {str(e)}")
+            return False, False, f"檢查 Docker 狀態時發生錯誤：{str(e)}"
+
+    def _update_docker_ui(self, is_installed, is_running, message):
+        """更新 Docker 相關的 UI 狀態
+        
+        Args:
+            is_installed (bool): Docker 是否已安裝
+            is_running (bool): Docker 是否正在運行
+            message (str): 狀態訊息
+        """
+        if is_installed and is_running:
+            self.docker_status_label.config(
+                text=message,
+                foreground="green"
+            )
+            self.install_button.pack_forget()
+        elif is_installed and not is_running:
+            self.docker_status_label.config(
+                text=message,
+                foreground="orange"
+            )
+            self.install_button.pack_forget()
+        else:
+            self.docker_status_label.config(
+                text=message,
+                foreground="red"
+            )
+            self.install_button.pack(anchor=tk.W, padx=5, pady=5)
+
+    def _on_vpn_toggle(self):
+        """處理 VPN 開關切換事件"""
+        if self.vpn_var.get():  # 當 VPN 被啟用時
+            self.log("VPN 已啟用，檢查 Docker 安裝狀態")
+            is_installed, is_running, message = self._check_docker_status()
+            
+            self._update_docker_ui(is_installed, is_running, message)
+            
+            if not is_installed:
+                messagebox.showwarning(
+                    "需要 Docker",
+                    "使用 VPN 功能需要安裝 Docker Desktop。\n請點擊下方的安裝按鈕進行安裝。",
+                    parent=self.dialog
+                )
+                self.vpn_var.set(False)
+            elif not is_running:
+                messagebox.showwarning(
+                    "Docker 未運行",
+                    "Docker Desktop 已安裝但未運行。\n請先啟動 Docker Desktop 再啟用 VPN。",
+                    parent=self.dialog
+                )
+                self.vpn_var.set(False)
+        else:
+            # VPN 被禁用時，隱藏安裝按鈕並重置狀態
+            self.log("VPN 已禁用")
+            self.docker_status_label.config(
+                text="等待檢查...",
+                foreground="gray"
+            )
+            self.install_button.pack_forget()
+
+    def _on_docker_install_click(self):
+        """處理 Docker 安裝按鈕點擊事件"""
+        self.log("用戶點擊安裝 Docker 按鈕")
+        try:
+            # 打開 Docker Desktop 下載頁面
+            webbrowser.open("https://www.docker.com/products/docker-desktop")
+            messagebox.showinfo(
+                "安裝 Docker",
+                "請下載並安裝 Docker Desktop。\n安裝完成後，請重新啟動應用程式並再次啟用 VPN。",
+                parent=self.dialog
+            )
+        except Exception as e:
+            self.log(f"打開 Docker 下載頁面時發生錯誤: {str(e)}")
+            messagebox.showerror(
+                "打開失敗",
+                f"無法打開 Docker 下載頁面：{str(e)}",
+                parent=self.dialog
+            )
 
 class ModernTaskDialog:
     """現代風格的任務編輯對話框"""
