@@ -16,6 +16,23 @@ class VPNTab(BaseSettingsTab):
     """VPN設定選項卡"""
     def create_widgets(self):
         """創建UI元素"""
+        # 添加開發中提示
+        dev_frame = tk.Frame(self, bg=COLORS["warning_light"], padx=10, pady=10)
+        dev_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        dev_label = tk.Label(
+            dev_frame,
+            text="⚠️ VPN 功能開發中 ⚠️\n此功能尚未完全實現，可能無法正常運作",
+            bg=COLORS["warning_light"],
+            fg=COLORS["warning_text"],
+            font=("Arial", 11, "bold"),
+            padx=10,
+            pady=10,
+            wraplength=350,
+            justify=tk.CENTER
+        )
+        dev_label.pack(fill=tk.X)
+        
         # VPN 設置內容
         vpn_label = ttk.LabelFrame(self, text="VPN 設置")
         vpn_label.pack(fill=tk.X, padx=10, pady=5)

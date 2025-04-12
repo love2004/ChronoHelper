@@ -10,6 +10,8 @@ COLORS = {
     "secondary": "#2ecc71",   # 次色調
     "warning": "#e74c3c",     # 警告色
     "warning_dark": "#c0392b", # 深警告色
+    "warning_light": "#fff3cd", # 淺警告色（背景）
+    "warning_text": "#856404", # 警告文字顏色
     "background": "#f5f6fa",  # 背景色
     "text": "#2d3436",        # 文字色
     "light_text": "#7f8c8d",  # 淺色文字
