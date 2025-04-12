@@ -56,7 +56,7 @@ class NetworkUtils:
         self.shutdown_flag = False  # 關閉標記，用於中止進行中的操作
         self.active_processes: List[subprocess.Popen] = []  # 跟踪活動的子進程
         self.active_threads: List[threading.Thread] = []    # 跟踪活動的線程
-        self.hop_check_timeout = self.settings.get("hop_check_timeout", 3)
+        self.hop_check_timeout = self.settings.get("hop_check_timeout", 10)
     
     def update_settings(self, settings: Dict[str, Any]) -> None:
         """更新設定，無需重啟應用程式
@@ -68,7 +68,7 @@ class NetworkUtils:
         self.settings = settings or {}
         
         # 讀取最新的超時設定
-        self.hop_check_timeout = self.settings.get("hop_check_timeout", 3)
+        self.hop_check_timeout = self.settings.get("hop_check_timeout", 10)
         
         # 清除緩存，強制下次檢測使用新設定
         self.clear_cache()
@@ -241,7 +241,7 @@ class NetworkUtils:
             def check_hop_thread() -> None:
                 try:
                     # 使用設定中的超時值
-                    timeout = self.settings.get("hop_check_timeout", 3)
+                    timeout = self.settings.get("hop_check_timeout", 10)
                     
                     # 檢測第二躍點
                     second_hop_info = self.check_second_hop(verbose, timeout)
@@ -328,7 +328,7 @@ class NetworkUtils:
             
         # 使用參數或實例屬性中的超時值
         if timeout is None:
-            timeout = getattr(self, 'hop_check_timeout', self.settings.get("hop_check_timeout", 6))
+            timeout = getattr(self, 'hop_check_timeout', self.settings.get("hop_check_timeout", 10))
             
         hop_info: Dict[str, Any] = {
             'is_campus': False,

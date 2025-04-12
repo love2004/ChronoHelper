@@ -629,7 +629,7 @@ class ChronoHelper:
         if dialog.result:
             # 保存舊設定的某些值用於比較
             old_interval = self.settings.get("check_interval", 30)
-            old_hop_timeout = self.settings.get("hop_check_timeout", 3)
+            old_hop_timeout = self.settings.get("hop_check_timeout", 10)
             old_enable_second_hop = self.settings.get("enable_second_hop", False)
             
             # 更新設定
@@ -651,7 +651,7 @@ class ChronoHelper:
             update_message = "已成功更新ChronoHelper設定"
             
             # 如果網絡檢測相關設定有變更，顯示特定消息
-            if (old_hop_timeout != self.settings.get("hop_check_timeout", 3) or
+            if (old_hop_timeout != self.settings.get("hop_check_timeout", 10) or
                 old_enable_second_hop != self.settings.get("enable_second_hop", False)):
                 update_message += "\n網絡檢測設定已更新，點擊狀態欄的刷新圖標測試"
             

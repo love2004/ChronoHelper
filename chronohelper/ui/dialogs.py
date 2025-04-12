@@ -269,7 +269,7 @@ class SettingsDialog:
         timeout_frame.grid(row=3, column=0, sticky=tk.W, padx=15, pady=5)
         
         tk.Label(timeout_frame, text="第二躍點檢測超時時間:", bg=COLORS["card"]).pack(side=tk.LEFT, padx=(0,5))
-        self.hop_timeout_var = tk.IntVar(value=settings.get("hop_check_timeout", 3))
+        self.hop_timeout_var = tk.IntVar(value=settings.get("hop_check_timeout", 10))
         ttk.Spinbox(timeout_frame, from_=1, to=10, increment=1, 
                    textvariable=self.hop_timeout_var, width=3).pack(side=tk.LEFT)
         tk.Label(timeout_frame, text="秒", bg=COLORS["card"]).pack(side=tk.LEFT, padx=5)
