@@ -18,7 +18,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from chronohelper.config.colors import COLORS
 from chronohelper.config.settings import APP_SETTINGS
 from chronohelper.ui.notification import NotificationWindow
-from chronohelper.ui.dialogs import SettingsDialog, ModernTaskDialog
+from chronohelper.ui.dialogs import ModernTaskDialog
+from chronohelper.ui.components.dialogs import SettingsDialog
 from chronohelper.ui.task_card import TaskCard
 from chronohelper.ui.helpers import SettingTooltip
 from chronohelper.utils.logger import Logger
@@ -627,14 +628,16 @@ class ChronoHelper:
     def open_settings(self):
         """打開設置對話框"""
         dialog = SettingsDialog(self.root, self.settings)
-        if dialog.result:
+        # 顯示對話框並獲取結果
+        result = dialog.show()
+        if result:
             # 保存舊設定的某些值用於比較
             old_interval = self.settings.get("check_interval", 30)
             old_hop_timeout = self.settings.get("hop_check_timeout", 10)
             old_enable_second_hop = self.settings.get("enable_second_hop", False)
             
             # 更新設定
-            self.settings = dialog.result
+            self.settings = result
             
             # 立即保存到文件
             self.file_handler.save_settings(self.settings)
