@@ -302,7 +302,7 @@ class SchedulerService:
         try:
             # 直接調用 NetworkUtils 的檢測方法進行網絡環境檢測
             # 設置 verbose=False 避免重複的日誌輸出
-            is_campus, ip, hop_info = self.app.network_utils.check_campus_network(verbose=False)
+            is_campus, ip, hop_info = self.app.network_utils.check_campus_network(verbose=False, wait_for_hop_check=True)
             
             # 更新網絡狀態
             current_is_campus = is_campus

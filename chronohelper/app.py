@@ -829,7 +829,7 @@ class ChronoHelper:
         self.last_periodic_check_time = now
             
         # 執行網絡檢測，但避免重複記錄
-        is_campus, ip, hop_info = self.network_utils.check_campus_network(verbose=False)
+        is_campus, ip, hop_info = self.network_utils.check_campus_network(verbose=False, wait_for_hop_check=True)
         
         # 強制更新UI，確保界面狀態和後端檢測結果同步
         self.root.after(0, lambda: self.update_network_status(is_campus, ip, hop_info, force_update=True))
