@@ -433,7 +433,7 @@ class SchedulerService:
             
             try:
                 self.app.logger.log(f"執行簽到任務: {task.name}")
-                result = self.app.perform_sign_in(task)
+                result = self.app.perform_sign_in(task, from_scheduler=True)
                 
                 if result:
                     # 簽到成功
@@ -486,7 +486,7 @@ class SchedulerService:
             
             try:
                 self.app.logger.log(f"執行簽退任務: {task.name}")
-                result = self.app.perform_sign_out(task)
+                result = self.app.perform_sign_out(task, from_scheduler=True)
                 
                 if result:
                     # 簽退成功
@@ -652,7 +652,7 @@ class SchedulerService:
             
             # 嘗試正常簽退
             self.app.logger.log(f"嘗試自動補簽退任務 '{prev_task.name}'")
-            result = self.app.perform_sign_out(prev_task)
+            result = self.app.perform_sign_out(prev_task, from_scheduler=True)
             
             if result:
                 self.app.logger.log(f"✅ 已成功補簽退任務 '{prev_task.name}'")
@@ -817,7 +817,7 @@ class SchedulerService:
                         if time_diff > 90 and getattr(self.app, 'is_campus_network', False):
                             self.app.logger.log(f"任務 '{task.name}' 已超時90分鐘，嘗試自動簽到...")
                             try:
-                                result = self.app.perform_sign_in(task)
+                                result = self.app.perform_sign_in(task, from_scheduler=True)
                                 if result:
                                     self.app.logger.log(f"✅ 自動簽到成功")
                                 else:
@@ -848,7 +848,7 @@ class SchedulerService:
                         if time_diff > 180 and getattr(self.app, 'is_campus_network', False):
                             self.app.logger.log(f"任務 '{task.name}' 已超時3小時，嘗試自動簽退...")
                             try:
-                                result = self.app.perform_sign_out(task)
+                                result = self.app.perform_sign_out(task, from_scheduler=True)
                                 if result:
                                     self.app.logger.log(f"✅ 自動簽退成功")
                                 else:

@@ -661,8 +661,13 @@ class ChronoHelper:
             # 清除緩存，但不立即執行檢測
             self.network_utils.clear_cache()
     
-    def perform_sign_in(self, task):
-        """執行簽到操作"""
+    def perform_sign_in(self, task, from_scheduler=False):
+        """執行簽到操作
+        
+        Args:
+            task: 要執行的任務
+            from_scheduler: 是否由調度器自動執行
+        """
         # 檢查網絡環境
         if not self.is_campus_network:
             self.logger.log(f"簽到失敗: 當前處於校外網絡環境，IP: {self.current_ip}")
@@ -681,8 +686,8 @@ class ChronoHelper:
             task.sign_in_done = True
             self.save_tasks()
             
-            # 更新統計信息
-            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
+            # 更新統計信息 - 只有在非調度器調用時才增加計數
+            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats') and not from_scheduler:
                 stats = self.scheduler.execution_stats
                 stats["successful_sign_ins"] = stats.get("successful_sign_ins", 0) + 1
                 stats["total_executions"] = stats.get("total_executions", 0) + 1
@@ -699,8 +704,8 @@ class ChronoHelper:
             self.status_var.set(f"已完成 '{task.name}' 的簽到")
             return True
         else:
-            # 更新統計信息
-            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
+            # 更新統計信息 - 只有在非調度器調用時才增加計數
+            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats') and not from_scheduler:
                 stats = self.scheduler.execution_stats
                 stats["failed_sign_ins"] = stats.get("failed_sign_ins", 0) + 1
                 stats["total_executions"] = stats.get("total_executions", 0) + 1
@@ -715,8 +720,13 @@ class ChronoHelper:
             self.status_var.set(f"'{task.name}' 簽到失敗")
             return False
     
-    def perform_sign_out(self, task):
-        """執行簽退操作"""
+    def perform_sign_out(self, task, from_scheduler=False):
+        """執行簽退操作
+        
+        Args:
+            task: 要執行的任務
+            from_scheduler: 是否由調度器自動執行
+        """
         # 檢查網絡環境
         if not self.is_campus_network:
             self.logger.log(f"簽退失敗: 當前處於校外網絡環境，IP: {self.current_ip}")
@@ -735,8 +745,8 @@ class ChronoHelper:
             task.sign_out_done = True
             self.save_tasks()
             
-            # 更新統計信息
-            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
+            # 更新統計信息 - 只有在非調度器調用時才增加計數
+            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats') and not from_scheduler:
                 stats = self.scheduler.execution_stats
                 stats["successful_sign_outs"] = stats.get("successful_sign_outs", 0) + 1
                 stats["total_executions"] = stats.get("total_executions", 0) + 1
@@ -756,8 +766,8 @@ class ChronoHelper:
             self.status_var.set(f"已完成 '{task.name}' 的簽退")
             return True
         else:
-            # 更新統計信息
-            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats'):
+            # 更新統計信息 - 只有在非調度器調用時才增加計數
+            if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'execution_stats') and not from_scheduler:
                 stats = self.scheduler.execution_stats
                 stats["failed_sign_outs"] = stats.get("failed_sign_outs", 0) + 1
                 stats["total_executions"] = stats.get("total_executions", 0) + 1
