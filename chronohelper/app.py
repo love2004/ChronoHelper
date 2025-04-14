@@ -556,9 +556,6 @@ class ChronoHelper:
         task._prev_sign_in_done = task.sign_in_done
         task._prev_sign_out_done = task.sign_out_done
         
-        # 保存更新後的任務
-        self.save_tasks()
-        
         # 更新日誌
         status_text = []
         if task.sign_in_done:
@@ -610,6 +607,9 @@ class ChronoHelper:
             
             # 使用after延遲更新系統狀態面板，避免與界面更新衝突
             self.root.after(100, self.update_system_stats)
+            
+        # 在統計信息更新後，執行一次保存，確保任務狀態被正確保存
+        self.save_tasks()
     
     def load_cookies(self):
         """載入保存的Cookies"""
