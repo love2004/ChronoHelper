@@ -59,6 +59,14 @@ class ChronoHelper:
         self.current_ip = "未知"
         self.last_network_log_time = None
         self.last_network_log_status = None
+        
+        # 網絡狀態平滑/持久化相關變數
+        self.consecutive_failures = 0
+        self.consecutive_successes = 0
+        self.failure_threshold = 2  # 需要連續2次失敗才切換狀態
+        self.success_threshold = 1  # 需要1次成功即切換狀態
+        self.last_known_status = None
+        
         self.system_stats = {
             "total_tasks": 0,
             "active_tasks": 0,
@@ -556,6 +564,9 @@ class ChronoHelper:
         task._prev_sign_in_done = task.sign_in_done
         task._prev_sign_out_done = task.sign_out_done
         
+        # 保存更新後的任務
+        self.save_tasks()
+        
         # 更新日誌
         status_text = []
         if task.sign_in_done:
@@ -607,9 +618,6 @@ class ChronoHelper:
             
             # 使用after延遲更新系統狀態面板，避免與界面更新衝突
             self.root.after(100, self.update_system_stats)
-            
-        # 在統計信息更新後，執行一次保存，確保任務狀態被正確保存
-        self.save_tasks()
     
     def load_cookies(self):
         """載入保存的Cookies"""
@@ -838,11 +846,9 @@ class ChronoHelper:
         # 更新最後檢測時間
         self.last_periodic_check_time = now
             
-        # 執行網絡檢測，但避免重複記錄
-        is_campus, ip, hop_info = self.network_utils.check_campus_network(verbose=False, wait_for_hop_check=True)
-        
-        # 強制更新UI，確保界面狀態和後端檢測結果同步
-        self.root.after(0, lambda: self.update_network_status(is_campus, ip, hop_info, force_update=True))
+        # 使用 refresh_network_status 來檢測網絡狀態
+        # 這樣會通過 _refresh_network_status_task 使用狀態平滑邏輯
+        self.refresh_network_status()
         
         # 繼續定期檢測（使用動態間隔，根據設定決定頻率）
         check_interval = max(10000, self.settings.get("network_check_interval", 30) * 1000)
@@ -862,13 +868,22 @@ class ChronoHelper:
         had_previous_state = hasattr(self, 'is_campus_network')
         status_changed = had_previous_state and self.is_campus_network != is_campus
         
+        # 只有狀態確實改變時才更新並觸發回調
+        if self.last_known_status != is_campus:
+            self.last_known_status = is_campus
+            
+            # 紀錄狀態變更
+            if had_previous_state and status_changed:
+                if is_campus:
+                    self.logger.log("網絡環境已變更: 校外 -> 校內")
+                else:
+                    self.logger.log("網絡環境已變更: 校內 -> 校外")
+        
         # 如果狀態變化或需要強制更新
         if status_changed or force_update:
             # 只在狀態變化且不是首次檢測時發出更改通知
             if status_changed and had_previous_state:
                 if is_campus:
-                    self.logger.log("網絡環境已變更: 校外 -> 校內")
-                    
                     # 如果是通過第二躍點檢測到的，則顯示相關信息
                     if hop_info and hop_info.get('is_campus', False) and not ip.startswith('163.23.'):
                         hop_ip = hop_info.get('ip', '未知')
@@ -876,15 +891,7 @@ class ChronoHelper:
                         self.show_notification("網絡環境變更", f"檢測到第二躍點 {hop_ip} 為校內網絡\n現在可以正常執行簽到/簽退操作")
                     else:
                         self.show_notification("網絡環境變更", "檢測到您已連接到校內網絡\n現在可以正常執行簽到/簽退操作")
-                    
-                    # 重置校內網絡限制狀態
-                    reset_count = self.reset_campus_restrictions()
-                    
-                    # 立即觸發一次任務調度檢查
-                    if hasattr(self, 'scheduler') and self.scheduler.running:
-                        self.root.after(1000, self.scheduler.check_tasks)
                 else:
-                    self.logger.log("網絡環境已變更: 校內 -> 校外")
                     self.show_notification("網絡環境變更", "檢測到您已離開校內網絡\n簽到/簽退操作將暫停執行")
             elif not had_previous_state:
                 # 首次檢測，記錄初始狀態
@@ -1007,28 +1014,63 @@ class ChronoHelper:
             is_campus, ip, hop_info = self.network_utils.check_campus_network(
                 verbose=True, wait_for_hop_check=True)
             
-            # 保存當前狀態以檢測變化
-            old_status = getattr(self, 'is_campus_network', None)
-            
-            # 更新網絡狀態（強制更新界面），添加skip_ip_log=True避免重複輸出IP地址
-            self.update_network_status(is_campus, ip, hop_info, force_update=True, skip_ip_log=True)
-            
-            # 如果網絡狀態發生變化，進行額外處理
-            if old_status != is_campus:
-                if is_campus:
-                    # 從校外變為校內：重置環境限制並觸發任務檢查
-                    reset_count = self.reset_campus_restrictions()
-                    if reset_count > 0:
-                        self.show_notification("環境限制已重置", 
-                                             f"已重置 {reset_count} 個受環境限制的任務\n現在可以正常執行了")
+            # 實現狀態平滑邏輯
+            if is_campus:
+                self.consecutive_successes += 1
+                self.consecutive_failures = 0
+                
+                # 只有連續成功達到閾值才更新狀態為校內
+                if self.consecutive_successes >= self.success_threshold:
+                    # 將更新狀態的邏輯移到這裡，只在達到閾值時執行
+                    self.logger.log(f"網絡狀態切換為校內，連續成功檢測次數: {self.consecutive_successes}")
+                    # 保存當前狀態以檢測變化
+                    old_status = getattr(self, 'is_campus_network', None)
                     
-                    # 立即觸發一次任務調度檢查，不需要等待下一個調度周期
-                    if hasattr(self, 'scheduler') and self.scheduler.running:
-                        self.logger.log("網絡環境變更，立即檢查待執行任務...")
-                        self.root.after(1000, self.scheduler.check_tasks)
+                    # 只有確實改變狀態時才顯示通知和處理特殊邏輯
+                    if old_status != True:
+                        # 更新網絡狀態（強制更新界面），添加skip_ip_log=True避免重複輸出IP地址
+                        self.update_network_status(True, ip, hop_info, force_update=True, skip_ip_log=True)
+                        
+                        # 從校外變為校內：重置環境限制並觸發任務檢查
+                        reset_count = self.reset_campus_restrictions()
+                        if reset_count > 0:
+                            self.show_notification("環境限制已重置", 
+                                                f"已重置 {reset_count} 個受環境限制的任務\n現在可以正常執行了")
+                        
+                        # 立即觸發一次任務調度檢查，不需要等待下一個調度周期
+                        if hasattr(self, 'scheduler') and self.scheduler.running:
+                            self.logger.log("網絡環境變更，立即檢查待執行任務...")
+                            self.root.after(1000, self.scheduler.check_tasks)
+                    else:
+                        # 狀態沒變，但仍然更新IP和其他信息
+                        self.update_network_status(True, ip, hop_info, force_update=True, skip_ip_log=True)
+            else:  # 檢測失敗
+                self.consecutive_failures += 1
+                self.consecutive_successes = 0
+                
+                # 只有連續失敗達到閾值才更新狀態為校外
+                if self.consecutive_failures >= self.failure_threshold:
+                    # 將更新狀態的邏輯移到這裡，只在達到閾值時執行
+                    self.logger.log(f"網絡狀態切換為校外，連續失敗檢測次數: {self.consecutive_failures}")
+                    # 保存當前狀態以檢測變化
+                    old_status = getattr(self, 'is_campus_network', None)
+                    
+                    # 只有確實改變狀態時才顯示通知和處理特殊邏輯
+                    if old_status != False:
+                        # 更新網絡狀態（強制更新界面），添加skip_ip_log=True避免重複輸出IP地址
+                        self.update_network_status(False, ip, hop_info, force_update=True, skip_ip_log=True)
+                        
+                        # 從校內變為校外：更新任務列表顯示
+                        self.logger.log("網絡環境變更為校外，暫停所有需要校內網絡的任務")
+                    else:
+                        # 狀態沒變，但仍然更新IP和其他信息
+                        self.update_network_status(False, ip, hop_info, force_update=True, skip_ip_log=True)
                 else:
-                    # 從校內變為校外：更新任務列表顯示
-                    self.logger.log("網絡環境變更為校外，暫停所有需要校內網絡的任務")
+                    # 失敗次數未達到閾值，維持原狀態，但更新其他數據
+                    self.logger.log(f"網絡檢測失敗，但次數未達閾值 ({self.consecutive_failures}/{self.failure_threshold})，維持原狀態")
+                    # 使用當前的網絡狀態來更新
+                    current_status = getattr(self, 'is_campus_network', False)
+                    self.update_network_status(current_status, ip, hop_info, force_update=True, skip_ip_log=True)
             
             # 強制刷新任務列表顯示
             self.refresh_task_list()

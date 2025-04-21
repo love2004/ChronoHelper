@@ -352,7 +352,7 @@ class NetworkUtils:
                 self.logger.log(f"IP地址檢測失敗: {str(e)}")
             return False, "未知", {}
     
-    def check_second_hop(self, verbose: bool = True, timeout: Optional[float] = None) -> Dict[str, Any]:
+    def check_second_hop(self, verbose: bool = True, timeout: Optional[float] = None, max_retries: int = 2, retry_delay: float = 1) -> Dict[str, Any]:
         """檢測第二躍點是否在校內網絡環境
         
         使用路由追蹤確定第二躍點位置，判斷是否在校內網絡。
@@ -360,6 +360,8 @@ class NetworkUtils:
         Args:
             verbose: 是否輸出檢測過程的日誌，默認為True
             timeout: 檢測命令超時時間（秒），默認使用設定中的值或3秒
+            max_retries: 最大重試次數，默認為2
+            retry_delay: 重試間隔時間（秒），默認為1
             
         Returns:
             Dict[str, Any]: 包含躍點資訊的字典
@@ -371,53 +373,147 @@ class NetworkUtils:
         # 使用參數或實例屬性中的超時值
         if timeout is None:
             timeout = getattr(self, 'hop_check_timeout', self.settings.get("hop_check_timeout", 10))
-            
-        hop_info: Dict[str, Any] = {
-            'is_campus': False,
-            'ip': '未知',
-            'hop_number': 2,
-            'method': 'unknown',
-            'check_time': time.time()
-        }
         
-        try:
-            # 使用tracert/traceroute
-            system = platform.system().lower()
+        retries = 0
+        
+        while retries <= max_retries:
+            hop_info: Dict[str, Any] = {
+                'is_campus': False,
+                'ip': '未知',
+                'hop_number': 2,
+                'method': 'unknown',
+                'check_time': time.time(),
+                'attempt': retries + 1
+            }
             
-            if system == 'windows':
-                # Windows使用tracert命令
-                target = '8.8.8.8'  # Google DNS服務器作為目標
-                cmd = f'tracert -h 2 {target}'
+            try:
+                # 使用tracert/traceroute
+                system = platform.system().lower()
                 
-                if verbose:
-                    self.logger.log(f"執行命令: {cmd}")
-                
-                # 執行命令並處理結果
-                process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, 
-                                           stderr=subprocess.PIPE, text=True)
-                # 跟踪進程
-                self.active_processes.append(process)
-                
-                try:
-                    # 等待進程完成，設置超時
-                    stdout, stderr = process.communicate(timeout=timeout)
+                if system == 'windows':
+                    # Windows使用tracert命令
+                    target = '8.8.8.8'  # Google DNS服務器作為目標
+                    cmd = f'tracert -h 2 -w 500 {target}'
                     
-                    # 從活動進程列表中刪除
-                    if process in self.active_processes:
-                        self.active_processes.remove(process)
+                    if verbose:
+                        self.logger.log(f"執行命令 (嘗試 {retries+1}/{max_retries+1}): {cmd}")
                     
-                    # 解析tracert輸出以獲取第二躍點信息
-                    lines = stdout.split('\n')
-                    for line in lines:
-                        # 找到包含 "  2 " 的行，表示第二躍點
-                        if "  2 " in line or "  2\t" in line:
+                    # 執行命令並處理結果
+                    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, 
+                                               stderr=subprocess.PIPE, text=True)
+                    # 跟踪進程
+                    self.active_processes.append(process)
+                    
+                    try:
+                        # 等待進程完成，設置超時
+                        stdout, stderr = process.communicate(timeout=timeout)
+                        
+                        # 從活動進程列表中刪除
+                        if process in self.active_processes:
+                            self.active_processes.remove(process)
+                        
+                        # 記錄stderr輸出
+                        if stderr and verbose:
+                            self.logger.log(f"Tracert stderr (嘗試 {retries+1}): {stderr}")
+                        
+                        # 解析tracert輸出以獲取第二躍點信息
+                        lines = stdout.split('\n')
+                        found_hop = False
+                        for line in lines:
+                            # 找到包含 "  2 " 的行，表示第二躍點
+                            if "  2 " in line or "  2\t" in line:
+                                # 使用正則表達式提取IP地址
+                                ip_match = re.search(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', line)
+                                if ip_match:
+                                    hop_ip = ip_match.group(0)
+                                    hop_info['ip'] = hop_ip
+                                    hop_info['is_campus'] = hop_ip.startswith('163.23.')
+                                    hop_info['method'] = 'tracert'
+                                    found_hop = True
+                                    
+                                    if verbose:
+                                        self.logger.log(f"第二躍點IP: {hop_ip}")
+                                        if hop_info['is_campus']:
+                                            self.logger.log(f"第二躍點IP識別為校內網絡")
+                                        else:
+                                            self.logger.log(f"第二躍點IP不是校內網絡")
+                                    break
+                        
+                        # 如果成功找到躍點，返回結果
+                        if found_hop:
+                            return hop_info
+                        
+                        # 如果沒找到躍點但有更多重試機會，等待後再試
+                        if retries < max_retries:
+                            if verbose:
+                                self.logger.log(f"躍點檢查失敗 (嘗試 {retries+1}/{max_retries+1})，{retry_delay}秒後重試...")
+                            time.sleep(retry_delay)
+                            retries += 1
+                        else:
+                            if verbose:
+                                self.logger.log(f"所有躍點檢查嘗試失敗 ({max_retries+1}/{max_retries+1})")
+                            hop_info['method'] = 'failed_all_attempts'
+                            return hop_info
+                            
+                    except subprocess.TimeoutExpired:
+                        # 超時時中止進程
+                        if process.poll() is None:
+                            process.terminate()
+                        # 從活動進程列表中刪除
+                        if process in self.active_processes:
+                            self.active_processes.remove(process)
+                        
+                        # 如果超時但有更多重試機會，等待後再試
+                        if retries < max_retries:
+                            if verbose:
+                                self.logger.log(f"tracert命令超時 (嘗試 {retries+1}/{max_retries+1})，{retry_delay}秒後重試...")
+                            time.sleep(retry_delay)
+                            retries += 1
+                        else:
+                            if verbose:
+                                self.logger.log(f"所有tracert命令嘗試都超時 ({max_retries+1}/{max_retries+1})")
+                            hop_info['method'] = 'timeout_all_attempts'
+                            return hop_info
+                else:
+                    # Linux/Mac使用traceroute命令
+                    target = '8.8.8.8'  # Google DNS服務器作為目標
+                    cmd = f'traceroute -m 2 -w 1 {target}'
+                    
+                    if verbose:
+                        self.logger.log(f"執行命令 (嘗試 {retries+1}/{max_retries+1}): {cmd}")
+                    
+                    # 執行命令並獲取輸出
+                    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, 
+                                               stderr=subprocess.PIPE, text=True)
+                    # 跟踪進程
+                    self.active_processes.append(process)
+                    
+                    try:
+                        # 等待進程完成，設置超時
+                        stdout, stderr = process.communicate(timeout=timeout)
+                        
+                        # 從活動進程列表中刪除
+                        if process in self.active_processes:
+                            self.active_processes.remove(process)
+                        
+                        # 記錄stderr輸出
+                        if stderr and verbose:
+                            self.logger.log(f"Traceroute stderr (嘗試 {retries+1}): {stderr}")
+                        
+                        # 解析traceroute輸出以獲取第二躍點信息
+                        lines = stdout.split('\n')
+                        found_hop = False
+                        if len(lines) >= 3:  # 確保至少有3行（標題行+兩個躍點）
+                            # 第二躍點在第3行（索引2）
+                            second_hop_line = lines[2]
                             # 使用正則表達式提取IP地址
-                            ip_match = re.search(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', line)
+                            ip_match = re.search(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', second_hop_line)
                             if ip_match:
                                 hop_ip = ip_match.group(0)
                                 hop_info['ip'] = hop_ip
                                 hop_info['is_campus'] = hop_ip.startswith('163.23.')
-                                hop_info['method'] = 'tracert'
+                                hop_info['method'] = 'traceroute'
+                                found_hop = True
                                 
                                 if verbose:
                                     self.logger.log(f"第二躍點IP: {hop_ip}")
@@ -425,81 +521,62 @@ class NetworkUtils:
                                         self.logger.log(f"第二躍點IP識別為校內網絡")
                                     else:
                                         self.logger.log(f"第二躍點IP不是校內網絡")
-                                break
-                except subprocess.TimeoutExpired:
-                    # 超時時中止進程
-                    if process.poll() is None:
-                        process.terminate()
-                    # 從活動進程列表中刪除
-                    if process in self.active_processes:
-                        self.active_processes.remove(process)
-                    if verbose:
-                        self.logger.log(f"tracert命令超時（{timeout}秒）")
-                    hop_info['method'] = 'timeout'
-            else:
-                # Linux/Mac使用traceroute命令
-                target = '8.8.8.8'  # Google DNS服務器作為目標
-                cmd = f'traceroute -m 2 {target}'
-                
-                if verbose:
-                    self.logger.log(f"執行命令: {cmd}")
-                
-                # 執行命令並獲取輸出
-                process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, 
-                                           stderr=subprocess.PIPE, text=True)
-                # 跟踪進程
-                self.active_processes.append(process)
-                
-                try:
-                    # 等待進程完成，設置超時
-                    stdout, stderr = process.communicate(timeout=timeout)
-                    
-                    # 從活動進程列表中刪除
-                    if process in self.active_processes:
-                        self.active_processes.remove(process)
-                    
-                    # 解析traceroute輸出以獲取第二躍點信息
-                    lines = stdout.split('\n')
-                    if len(lines) >= 3:  # 確保至少有3行（標題行+兩個躍點）
-                        # 第二躍點在第3行（索引2）
-                        second_hop_line = lines[2]
-                        # 使用正則表達式提取IP地址
-                        ip_match = re.search(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', second_hop_line)
-                        if ip_match:
-                            hop_ip = ip_match.group(0)
-                            hop_info['ip'] = hop_ip
-                            hop_info['is_campus'] = hop_ip.startswith('163.23.')
-                            hop_info['method'] = 'traceroute'
-                            
+                        
+                        # 如果成功找到躍點，返回結果
+                        if found_hop:
+                            return hop_info
+                        
+                        # 如果沒找到躍點但有更多重試機會，等待後再試
+                        if retries < max_retries:
                             if verbose:
-                                self.logger.log(f"第二躍點IP: {hop_ip}")
-                                if hop_info['is_campus']:
-                                    self.logger.log(f"第二躍點IP識別為校內網絡")
-                                else:
-                                    self.logger.log(f"第二躍點IP不是校內網絡")
-                except subprocess.TimeoutExpired:
-                    # 超時時中止進程
-                    if process.poll() is None:
-                        process.terminate()
-                    # 從活動進程列表中刪除
-                    if process in self.active_processes:
-                        self.active_processes.remove(process)
+                                self.logger.log(f"躍點檢查失敗 (嘗試 {retries+1}/{max_retries+1})，{retry_delay}秒後重試...")
+                            time.sleep(retry_delay)
+                            retries += 1
+                        else:
+                            if verbose:
+                                self.logger.log(f"所有躍點檢查嘗試失敗 ({max_retries+1}/{max_retries+1})")
+                            hop_info['method'] = 'failed_all_attempts'
+                            return hop_info
+                            
+                    except subprocess.TimeoutExpired:
+                        # 超時時中止進程
+                        if process.poll() is None:
+                            process.terminate()
+                        # 從活動進程列表中刪除
+                        if process in self.active_processes:
+                            self.active_processes.remove(process)
+                        
+                        # 如果超時但有更多重試機會，等待後再試
+                        if retries < max_retries:
+                            if verbose:
+                                self.logger.log(f"traceroute命令超時 (嘗試 {retries+1}/{max_retries+1})，{retry_delay}秒後重試...")
+                            time.sleep(retry_delay)
+                            retries += 1
+                        else:
+                            if verbose:
+                                self.logger.log(f"所有traceroute命令嘗試都超時 ({max_retries+1}/{max_retries+1})")
+                            hop_info['method'] = 'timeout_all_attempts'
+                            return hop_info
+                
+            except Exception as e:
+                # 記錄異常並重試
+                if verbose:
+                    self.logger.log(f"第二躍點檢測失敗: {str(e)}")
+                
+                # 如果發生異常但有更多重試機會，等待後再試
+                if retries < max_retries:
                     if verbose:
-                        self.logger.log(f"traceroute命令超時（{timeout}秒）")
-                    hop_info['method'] = 'timeout'
-            
-            return hop_info
-            
-        except subprocess.TimeoutExpired:
-            if verbose:
-                self.logger.log(f"第二躍點檢測超時（{timeout}秒限制）")
-            hop_info['method'] = 'timeout'
-            return hop_info
-        except Exception as e:
-            if verbose:
-                self.logger.log(f"第二躍點檢測失敗: {str(e)}")
-            hop_info['method'] = 'error'
-            return hop_info
+                        self.logger.log(f"躍點檢查錯誤 (嘗試 {retries+1}/{max_retries+1})，{retry_delay}秒後重試...")
+                    time.sleep(retry_delay)
+                    retries += 1
+                else:
+                    if verbose:
+                        self.logger.log(f"所有躍點檢查嘗試都發生錯誤 ({max_retries+1}/{max_retries+1})")
+                    hop_info['method'] = 'error_all_attempts'
+                    return hop_info
+        
+        # 這行理論上永遠不會執行，因為所有重試路徑都有返回值
+        return hop_info
 
 
 if __name__ == "__main__":
